@@ -11,16 +11,23 @@ import {
 type CheckProps = {
   mode: "check";
   dates: string[];
-  unavailable: Set<string>;
+  /** 안 된다고 표시한 날 */
+  off: Set<string>;
+  /** 고를 수 없는 날과 그 이유 */
+  blocked: Map<string, string>;
   onToggle: (date: string) => void;
+};
+
+export type ResultCell = {
+  tone: "perfect" | "plain" | "blocked" | "confirmed";
+  /** 숫자 아래 작은 글씨 */
+  sub: string;
 };
 
 type ResultProps = {
   mode: "result";
   dates: string[];
-  /** 날짜별 안 되는 사람 수 */
-  missing: Map<string, number>;
-  total: number;
+  cells: Map<string, ResultCell>;
   selected: string | null;
   onSelect: (date: string) => void;
 };
@@ -66,7 +73,21 @@ export default function Calendar(props: CheckProps | ResultProps) {
               }
 
               if (props.mode === "check") {
-                const no = props.unavailable.has(date);
+                const reason = props.blocked.get(date);
+                if (reason) {
+                  return (
+                    <span
+                      className="cell locked"
+                      key={date}
+                      role="img"
+                      aria-label={`${formatKorean(date)} ${reason}, 고를 수 없음`}
+                    >
+                      <span className="num">{day}</span>
+                      <span className="sub">{reason}</span>
+                    </span>
+                  );
+                }
+                const no = props.off.has(date);
                 return (
                   <button
                     type="button"
@@ -82,32 +103,22 @@ export default function Calendar(props: CheckProps | ResultProps) {
                 );
               }
 
-              const miss = props.missing.get(date) ?? 0;
-              const perfect = props.total > 0 && miss === 0;
+              const cell = props.cells.get(date) ?? {
+                tone: "plain" as const,
+                sub: "",
+              };
               const selected = props.selected === date;
               return (
                 <button
                   type="button"
                   key={date}
-                  className={`cell show${perfect ? " perfect" : ""}${selected ? " selected" : ""}`}
+                  className={`cell show ${cell.tone}${selected ? " selected" : ""}`}
                   aria-pressed={selected}
-                  aria-label={
-                    props.total === 0
-                      ? formatKorean(date)
-                      : perfect
-                        ? `${formatKorean(date)} 모두 가능`
-                        : `${formatKorean(date)} ${miss}명 불가`
-                  }
+                  aria-label={`${formatKorean(date)} ${cell.sub}`}
                   onClick={() => props.onSelect(date)}
                 >
                   <span className="num">{day}</span>
-                  <span className="sub">
-                    {props.total === 0
-                      ? ""
-                      : perfect
-                        ? "모두 가능"
-                        : `${miss}명 불가`}
-                  </span>
+                  <span className="sub">{cell.sub}</span>
                 </button>
               );
             })}

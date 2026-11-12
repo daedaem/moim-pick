@@ -2,6 +2,7 @@ import {
   cleanLine,
   fail,
   handleError,
+  hostHashOf,
   json,
   newAdminToken,
   newEventId,
@@ -11,8 +12,14 @@ import {
   tooMany,
 } from "@/lib/api";
 import { buildCandidates, parseYmd } from "@/lib/dates";
+import { SLOT_ORDER } from "@/lib/slots";
 import { getStore } from "@/lib/store";
-import { LIMITS, type EventSummary, type MoimEvent } from "@/lib/types";
+import {
+  LIMITS,
+  type EventSummary,
+  type MoimEvent,
+  type Slot,
+} from "@/lib/types";
 
 // 모임 만들기
 export async function POST(request: Request) {
@@ -24,42 +31,62 @@ export async function POST(request: Request) {
   const start = typeof body.start === "string" ? body.start : "";
   const end = typeof body.end === "string" ? body.end : "";
   const weekdays = Array.isArray(body.weekdays)
-    ? [...new Set(body.weekdays.filter((d): d is number => Number.isInteger(d) && d >= 0 && d <= 6))]
+    ? [
+        ...new Set(
+          body.weekdays.filter(
+            (d): d is number => Number.isInteger(d) && d >= 0 && d <= 6,
+          ),
+        ),
+      ]
     : [];
+  const requested = Array.isArray(body.slots) ? body.slots : ["D"];
+  const slots: Slot[] = SLOT_ORDER.filter((s) => requested.includes(s));
 
   if (!title) return fail("모임 이름을 입력해 주세요.");
-  if (title.length > LIMITS.titleMax) return fail(`모임 이름은 ${LIMITS.titleMax}자까지 쓸 수 있어요.`);
-  if (memo.length > LIMITS.memoMax) return fail(`메모는 ${LIMITS.memoMax}자까지 쓸 수 있어요.`);
+  if (title.length > LIMITS.titleMax)
+    return fail(`모임 이름은 ${LIMITS.titleMax}자까지 쓸 수 있어요.`);
+  if (memo.length > LIMITS.memoMax)
+    return fail(`메모는 ${LIMITS.memoMax}자까지 쓸 수 있어요.`);
+  if (slots.length === 0) return fail("점심, 저녁 중 하나 이상 골라 주세요.");
 
   const s = parseYmd(start);
   const e = parseYmd(end);
   if (!s || !e) return fail("시작일과 종료일을 골라 주세요.");
   if (s > e) return fail("종료일이 시작일보다 빨라요.");
   const span = Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1;
-  if (span > LIMITS.rangeDaysMax) return fail(`기간은 최대 ${LIMITS.rangeDaysMax}일까지 잡을 수 있어요.`);
+  if (span > LIMITS.rangeDaysMax)
+    return fail(`기간은 최대 ${LIMITS.rangeDaysMax}일까지 잡을 수 있어요.`);
   if (weekdays.length === 0) return fail("요일을 하나 이상 골라 주세요.");
 
   const dates = buildCandidates(start, end, weekdays);
-  if (dates.length === 0) return fail("이 기간에는 고른 요일에 해당하는 날이 없어요.");
+  if (dates.length === 0)
+    return fail("이 기간에는 고른 요일에 해당하는 날이 없어요.");
 
   try {
     const store = getStore();
     if (await tooMany(request, "create", 20, store.hit)) {
-      return fail("모임을 너무 많이 만들었어요. 한 시간 뒤에 다시 시도해 주세요.", 429);
+      return fail(
+        "모임을 너무 많이 만들었어요. 한 시간 뒤에 다시 시도해 주세요.",
+        429,
+      );
     }
     // 관리용 토큰은 만든 사람에게 이번 한 번만 알려 주고, 서버에는 해시만 남긴다
     const adminToken = newAdminToken();
+    const hostHash = await hostHashOf(request);
     const event: MoimEvent = {
       id: newEventId(),
       title,
       memo,
       dates,
+      slots,
       createdAt: Date.now(),
       adminHash: await sha256(adminToken),
       searchable: body.searchable !== false,
+      ...(hostHash ? { hostHash } : {}),
     };
     await store.createEvent(event);
     if (event.searchable) await store.setIndexed(event, true);
+    if (hostHash) await store.linkHostEvent(hostHash, event.id, true);
     return json({ event: publicEvent(event), adminToken }, 201);
   } catch (error) {
     return handleError(error);
@@ -75,7 +102,9 @@ export async function GET(request: Request) {
     const compact = q.replace(/\s+/g, "");
     const found: EventSummary[] = events
       .filter((e) => e.searchable !== false)
-      .filter((e) => e.title.toLowerCase().replace(/\s+/g, "").includes(compact))
+      .filter((e) =>
+        e.title.toLowerCase().replace(/\s+/g, "").includes(compact),
+      )
       .slice(0, 10)
       .map((e) => ({
         id: e.id,
@@ -89,4 +118,3 @@ export async function GET(request: Request) {
     return handleError(error);
   }
 }
-

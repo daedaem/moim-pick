@@ -1,5 +1,5 @@
 import { Redis } from "@upstash/redis";
-import type { MoimEvent, MoimResponse } from "./types";
+import type { HostRecord, MoimEvent, MoimResponse } from "./types";
 
 /**
  * 저장소 계층.
@@ -39,12 +39,29 @@ interface Store {
   countResponses(id: string): Promise<number>;
   /** 응답이 없으면 null. 있으면 수정 토큰 해시(예전 응답은 빈 문자열) */
   getEditHash(id: string, name: string): Promise<string | null>;
-  putResponse(id: string, response: MoimResponse, editHash: string): Promise<void>;
+  putResponse(
+    id: string,
+    response: MoimResponse,
+    editHash: string,
+  ): Promise<void>;
   deleteResponse(id: string, name: string): Promise<void>;
+  getHost(hostHash: string): Promise<HostRecord | null>;
+  putHost(hostHash: string, record: HostRecord): Promise<void>;
+  /** 모임을 모임장에게 묶거나(true) 푼다(false) */
+  linkHostEvent(
+    hostHash: string,
+    eventId: string,
+    linked: boolean,
+  ): Promise<void>;
+  /** 모임장이 만든 모임들 */
+  listHostEvents(hostHash: string): Promise<MoimEvent[]>;
 }
 
 const eventKey = (id: string) => `mp:event:${id}`;
 const responsesKey = (id: string) => `mp:event:${id}:responses`;
+const hostKey = (hash: string) => `mp:host:${hash}`;
+const hostEventsKey = (hash: string) => `mp:host:${hash}:events`;
+const HOST_TTL_SECONDS = 60 * 60 * 24 * 400;
 const INDEX_KEY = "mp:index"; // 정렬 집합: 점수 = 만든 시각, 값 = 모임 ID
 
 /**
@@ -97,13 +114,21 @@ function redisStore(redis: Redis): Store {
       return count;
     },
     async setIndexed(event, indexed) {
-      if (indexed) await redis.zadd(INDEX_KEY, { score: event.createdAt, member: event.id });
+      if (indexed)
+        await redis.zadd(INDEX_KEY, {
+          score: event.createdAt,
+          member: event.id,
+        });
       else await redis.zrem(INDEX_KEY, event.id);
     },
     async listIndexed(limit) {
-      const ids = await redis.zrange<string[]>(INDEX_KEY, 0, limit - 1, { rev: true });
+      const ids = await redis.zrange<string[]>(INDEX_KEY, 0, limit - 1, {
+        rev: true,
+      });
       if (ids.length === 0) return [];
-      const events = await redis.mget<(MoimEvent | null)[]>(...ids.map(eventKey));
+      const events = await redis.mget<(MoimEvent | null)[]>(
+        ...ids.map(eventKey),
+      );
       // 기한이 지나 사라진 모임은 목록에서도 치운다
       const gone = ids.filter((_, i) => !events[i]);
       if (gone.length > 0) await redis.zrem(INDEX_KEY, ...gone);
@@ -146,6 +171,30 @@ function redisStore(redis: Redis): Store {
     async deleteResponse(id, name) {
       await redis.hdel(responsesKey(id), name);
     },
+    async getHost(hostHash) {
+      return (await redis.get<HostRecord>(hostKey(hostHash))) ?? null;
+    },
+    async putHost(hostHash, record) {
+      await redis.set(hostKey(hostHash), record, { ex: HOST_TTL_SECONDS });
+    },
+    async linkHostEvent(hostHash, eventId, linked) {
+      if (linked) {
+        await redis.sadd(hostEventsKey(hostHash), eventId);
+        await redis.expire(hostEventsKey(hostHash), HOST_TTL_SECONDS);
+      } else {
+        await redis.srem(hostEventsKey(hostHash), eventId);
+      }
+    },
+    async listHostEvents(hostHash) {
+      const ids = await redis.smembers(hostEventsKey(hostHash));
+      if (ids.length === 0) return [];
+      const events = await redis.mget<(MoimEvent | null)[]>(
+        ...ids.map(eventKey),
+      );
+      const gone = ids.filter((_, i) => !events[i]);
+      if (gone.length > 0) await redis.srem(hostEventsKey(hostHash), ...gone);
+      return events.filter((e): e is MoimEvent => Boolean(e));
+    },
   };
 }
 
@@ -154,10 +203,14 @@ function memoryStore(): Store {
     __moimEvents?: Map<string, MoimEvent>;
     __moimResponses?: Map<string, Map<string, StoredResponse>>;
     __moimIndex?: Set<string>;
+    __moimHosts?: Map<string, HostRecord>;
+    __moimHostEvents?: Map<string, Set<string>>;
   };
   const events = (g.__moimEvents ??= new Map());
   const responses = (g.__moimResponses ??= new Map());
   const index = (g.__moimIndex ??= new Set<string>());
+  const hosts = (g.__moimHosts ??= new Map<string, HostRecord>());
+  const hostEvents = (g.__moimHostEvents ??= new Map<string, Set<string>>());
   const hits = new Map<string, { count: number; until: number }>();
   const bucket = (id: string) => {
     let b = responses.get(id);
@@ -227,6 +280,23 @@ function memoryStore(): Store {
     },
     async deleteResponse(id, name) {
       bucket(id).delete(name);
+    },
+    async getHost(hostHash) {
+      return hosts.get(hostHash) ?? null;
+    },
+    async putHost(hostHash, record) {
+      hosts.set(hostHash, record);
+    },
+    async linkHostEvent(hostHash, eventId, linked) {
+      const set = hostEvents.get(hostHash) ?? new Set<string>();
+      hostEvents.set(hostHash, set);
+      if (linked) set.add(eventId);
+      else set.delete(eventId);
+    },
+    async listHostEvents(hostHash) {
+      return [...(hostEvents.get(hostHash) ?? [])]
+        .map((id) => events.get(id))
+        .filter((e): e is MoimEvent => Boolean(e));
     },
   };
 }

@@ -3,29 +3,63 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Calendar from "@/app/components/Calendar";
+import Calendar, { type ResultCell } from "@/app/components/Calendar";
+import SlotList from "@/app/components/SlotList";
 import StationPicker from "@/app/components/StationPicker";
 import { formatKorean, formatShort } from "@/lib/dates";
 import {
   forgetEvent,
   readAdminToken,
-  readName,
   readEditToken,
+  readFlag,
+  readHostToken,
+  readName,
+  readSeenBlocked,
   readStation,
   rememberAdminToken,
   rememberEditToken,
   rememberEvent,
   rememberName,
+  rememberSeenBlocked,
   rememberStation,
+  setFlag,
+  takeHashToken,
 } from "@/lib/recent";
-import { recommendMeetingPoints, stationLabel } from "@/lib/stations";
-import { LIMITS, RELATIONS, type EventPayload } from "@/lib/types";
+import {
+  allSlotKeys,
+  confirmedOf,
+  eventSlots,
+  formatSlot,
+  formatSlotShort,
+  parseSlotKey,
+  SLOT_LABELS,
+  slotKey,
+} from "@/lib/slots";
+import {
+  recommendMeetingPoints,
+  stationLabel,
+  type MeetingPoint,
+} from "@/lib/stations";
+import {
+  LIMITS,
+  RELATIONS,
+  type BlockReason,
+  type EventPayload,
+  type Slot,
+} from "@/lib/types";
 
 type View = "loading" | "name" | "relation" | "station" | "dates" | "result";
 
 const STEPS: View[] = ["name", "relation", "station", "dates"];
 
+const BLOCK_TEXT: Record<BlockReason, string> = {
+  busy: "모임장 불가",
+  fixed: "다른 모임",
+};
+
 const cleanName = (value: string) => value.replace(/\s+/g, " ").trim();
+
+type Draft = { date: string; slot: Slot; station: string; searching: boolean };
 
 export default function EventClient() {
   const { id } = useParams<{ id: string }>();
@@ -37,19 +71,17 @@ export default function EventClient() {
   const [name, setName] = useState("");
   const [relation, setRelation] = useState("");
   const [station, setStation] = useState("");
+  /** 안 된다고 표시한 칸 ("날짜:시간대") */
   const [unavailable, setUnavailable] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
   const [adminToken, setAdminToken] = useState("");
+  const [isHost, setIsHost] = useState(false);
   const [confirming, setConfirming] = useState(""); // "event" 또는 지우려는 사람 이름
-  // 확정하려고 고르는 중인 날짜와 역
-  const [draft, setDraft] = useState<{
-    date: string;
-    station: string;
-    searching: boolean;
-  } | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null); // 확정하려고 고르는 중인 날짜·시간대·역
+  const [seenBlocked, setSeenBlocked] = useState<string[] | null>(null);
   const restored = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -85,23 +117,35 @@ export default function EventClient() {
   // 처음 열 때: 모임을 불러오고, 전에 쓰던 이름과 응답이 있으면 되살린다
   useEffect(() => {
     let cancelled = false;
-    fetchEvent(id).then((result) => {
+    // 관리 링크(#admin=토큰)로 들어왔으면 이 기기에 기억해 둔다 (불러오기 전에 해야 권한이 바로 반영됨)
+    const fromHash = takeHashToken("admin");
+    if (fromHash) rememberAdminToken(id, fromHash);
+
+    fetchEvent(id).then(async (first) => {
+      let result = first;
+      // 이 기기에서 만든 모임인데 모임장 계정에 아직 안 묶였으면 묶는다
+      if (
+        result.ok &&
+        readAdminToken(id) &&
+        readHostToken() &&
+        !readFlag(`mp:claimed:${id}`)
+      ) {
+        await fetch(`/api/events/${id}`, {
+          method: "PATCH",
+          headers: tokenHeaders(id),
+          body: JSON.stringify({ claim: true }),
+        }).catch(() => null);
+        setFlag(`mp:claimed:${id}`);
+        result = await fetchEvent(id);
+      }
       if (cancelled) return;
       apply(result);
       if (!result.ok || restored.current) return;
       restored.current = true;
       const { event, responses } = result.payload;
       rememberEvent({ id: event.id, title: event.title });
-
-      // 관리 링크(#admin=토큰)로 들어왔으면 이 기기에 기억해 두고 주소에서는 지운다
-      const fromHash = /^#admin=([0-9a-f]{20,})$/.exec(
-        window.location.hash,
-      )?.[1];
-      if (fromHash) {
-        rememberAdminToken(event.id, fromHash);
-        window.history.replaceState(null, "", window.location.pathname);
-      }
-      setAdminToken(fromHash ?? readAdminToken(event.id));
+      setAdminToken(readAdminToken(event.id));
+      setIsHost(Boolean(readHostToken()));
 
       const saved = readName(event.id);
       const mine =
@@ -113,6 +157,7 @@ export default function EventClient() {
         setRelation(mine.relation);
         setStation(mine.station);
         setUnavailable(new Set(mine.unavailable));
+        setSeenBlocked(readSeenBlocked(event.id) ?? []);
         setView("result");
       } else {
         // 다른 모임에서 골랐던 출발역은 다시 묻지 않는다
@@ -142,51 +187,129 @@ export default function EventClient() {
   const event = data?.event ?? null;
   const responses = useMemo(() => data?.responses ?? [], [data]);
   const dates = useMemo(() => event?.dates ?? [], [event]);
+  const slots = useMemo(
+    () => (event ? eventSlots(event) : (["D"] as Slot[])),
+    [event],
+  );
+  const twoSlots = slots.length === 2;
+  const blocked = useMemo(() => data?.blocked ?? {}, [data]);
+  const manage = data?.canManage ?? false;
   const trimmedName = cleanName(name);
   const existing = responses.find((r) => r.name === trimmedName);
 
+  /** 고를 수 있는 칸 (모임장 일정으로 빠진 칸 제외) */
+  const openKeys = useMemo(
+    () => (event ? allSlotKeys(event).filter((key) => !blocked[key]) : []),
+    [event, blocked],
+  );
+
+  /** 칸마다 안 되는 사람. 안 되는 사람이 적은 순 */
   const ranking = useMemo(() => {
-    return dates
-      .map((date) => ({
-        date,
+    return openKeys
+      .map((key) => ({
+        key,
         missing: responses
-          .filter((r) => r.unavailable.includes(date))
+          .filter((r) => r.unavailable.includes(key))
           .map((r) => r.name),
       }))
       .sort(
         (a, b) =>
-          a.missing.length - b.missing.length || a.date.localeCompare(b.date),
+          a.missing.length - b.missing.length || a.key.localeCompare(b.key),
       );
-  }, [dates, responses]);
-
-  const missingMap = useMemo(
-    () => new Map(ranking.map((row) => [row.date, row.missing.length])),
+  }, [openKeys, responses]);
+  const missingByKey = useMemo(
+    () => new Map(ranking.map((row) => [row.key, row.missing])),
     [ranking],
   );
-  const perfectCount = ranking.filter((row) => row.missing.length === 0).length;
+
+  const total = responses.length;
+  const confirmed = event ? confirmedOf(event) : null;
+
+  /** 결과 달력의 날짜별 표시 */
+  const cells = useMemo(() => {
+    const map = new Map<string, ResultCell>();
+    for (const date of dates) {
+      const keys = slots.map((slot) => ({ slot, key: slotKey(date, slot) }));
+      const open = keys.filter((k) => !blocked[k.key]);
+      if (confirmed?.date === date) {
+        map.set(date, { tone: "confirmed", sub: "확정" });
+      } else if (open.length === 0) {
+        const fixed = keys.some((k) => blocked[k.key] === "fixed");
+        map.set(date, {
+          tone: "blocked",
+          sub: BLOCK_TEXT[fixed ? "fixed" : "busy"],
+        });
+      } else if (total === 0) {
+        map.set(date, { tone: "plain", sub: "" });
+      } else {
+        const perfect = open.filter(
+          (k) => (missingByKey.get(k.key)?.length ?? 0) === 0,
+        );
+        if (perfect.length > 0) {
+          const sub =
+            !twoSlots || perfect.length === 2
+              ? "모두 가능"
+              : `${SLOT_LABELS[perfect[0].slot]} 가능`;
+          map.set(date, { tone: "perfect", sub });
+        } else {
+          const least = Math.min(
+            ...open.map((k) => missingByKey.get(k.key)?.length ?? 0),
+          );
+          map.set(date, { tone: "plain", sub: `${least}명 불가` });
+        }
+      }
+    }
+    return map;
+  }, [dates, slots, twoSlots, blocked, confirmed, total, missingByKey]);
+
+  const perfectDays = [...cells.values()].filter(
+    (c) => c.tone === "perfect",
+  ).length;
+  const blockedDays = [...cells.values()].filter(
+    (c) => c.tone === "blocked",
+  ).length;
   const withStation = responses.filter((r) => r.station).length;
 
-  // 결과 화면에서 보고 있는 날짜 (고르지 않았으면 가장 많이 되는 날)
+  // 결과 화면에서 보고 있는 날짜 (고르지 않았으면 확정일, 없으면 가장 많이 되는 날)
+  const bestKey = ranking[0]?.key ?? null;
   const focusDate =
-    picked && dates.includes(picked) ? picked : (ranking[0]?.date ?? null);
-  const focus = ranking.find((row) => row.date === focusDate) ?? null;
-  const meeting = useMemo(() => {
-    if (!focusDate) return [];
-    const origins = responses
-      .filter((r) => r.station && !r.unavailable.includes(focusDate))
-      .map((r) => r.station);
-    return recommendMeetingPoints(origins);
-  }, [focusDate, responses]);
+    picked && dates.includes(picked)
+      ? picked
+      : (confirmed?.date ?? (bestKey ? parseSlotKey(bestKey)!.date : null));
 
-  function toggle(date: string) {
+  /** 보고 있는 날짜의 시간대별 모이기 좋은 역 */
+  const meetingBySlot = useMemo(() => {
+    const map = new Map<Slot, MeetingPoint[]>();
+    if (!focusDate) return map;
+    for (const slot of slots) {
+      const key = slotKey(focusDate, slot);
+      if (blocked[key]) continue;
+      const origins = responses
+        .filter((r) => r.station && !r.unavailable.includes(key))
+        .map((r) => r.station);
+      map.set(slot, recommendMeetingPoints(origins));
+    }
+    return map;
+  }, [focusDate, slots, blocked, responses]);
+
+  function toggle(key: string) {
     setUnavailable((prev) => {
       const next = new Set(prev);
-      if (next.has(date)) next.delete(date);
-      else next.add(date);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
     setFormError("");
   }
+
+  /** 이 기기에서 그 응답을 고칠 수 있는지: 응답한 기기이거나 모임장 */
+  const canEdit = (target: string) =>
+    Boolean(manage || (event && readEditToken(event.id, target)));
+
+  const authHeaders = (target: string): Record<string, string> => ({
+    ...tokenHeaders(id),
+    "x-edit-token": event ? readEditToken(event.id, target) : "",
+  });
 
   function startEdit(target: string) {
     const found = responses.find((r) => r.name === target);
@@ -197,16 +320,6 @@ export default function EventClient() {
     // 관계를 아직 안 적은 예전 응답은 관계부터 묻는다
     go(found && !found.relation ? "relation" : "dates");
   }
-
-  /** 이 기기에서 그 응답을 고칠 수 있는지: 응답한 기기이거나 주최자 */
-  const canEdit = (target: string) =>
-    Boolean(adminToken || (event && readEditToken(event.id, target)));
-
-  const authHeaders = (target: string): Record<string, string> => ({
-    "Content-Type": "application/json",
-    "x-edit-token": event ? readEditToken(event.id, target) : "",
-    "x-admin-token": adminToken,
-  });
 
   function submitName() {
     if (!trimmedName) {
@@ -229,6 +342,13 @@ export default function EventClient() {
     go("relation");
   }
 
+  function markBlockedSeen() {
+    if (!event) return;
+    const keys = Object.keys(blocked);
+    rememberSeenBlocked(event.id, keys);
+    setSeenBlocked(keys);
+  }
+
   async function save() {
     if (saving || !event) return;
     if (!trimmedName) return go("name");
@@ -243,7 +363,8 @@ export default function EventClient() {
           name: trimmedName,
           relation,
           station,
-          unavailable: [...unavailable],
+          // 모임장 일정으로 빠진 칸은 보내지 않는다
+          unavailable: openKeys.filter((key) => unavailable.has(key)),
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -255,6 +376,7 @@ export default function EventClient() {
       if (body.editToken)
         rememberEditToken(event.id, trimmedName, body.editToken);
       if (station) rememberStation(station);
+      markBlockedSeen(); // 방금 달력에서 빠진 칸을 보고 답했으므로 따로 알리지 않는다
       await load();
       setPicked(null);
       go("result");
@@ -292,16 +414,15 @@ export default function EventClient() {
     }
   }
 
-  async function setConfirmed(next: { date: string; station: string } | null) {
+  async function setConfirmed(
+    next: { date: string; slot: Slot; station: string } | null,
+  ) {
     if (saving || !event) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/events/${event.id}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-token": adminToken,
-        },
+        headers: tokenHeaders(id),
         body: JSON.stringify({ confirmed: next }),
       });
       const body = await res.json().catch(() => ({}));
@@ -326,7 +447,7 @@ export default function EventClient() {
     try {
       const res = await fetch(`/api/events/${event.id}`, {
         method: "DELETE",
-        headers: { "x-admin-token": adminToken },
+        headers: tokenHeaders(id),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -385,7 +506,7 @@ export default function EventClient() {
           <div className="card empty">
             <p className="empty-title">{loadError}</p>
             <Link className="btn soft" href="/">
-              새 모임 만들기
+              모임 찾기
             </Link>
           </div>
         ) : (
@@ -405,12 +526,30 @@ export default function EventClient() {
     </div>
   );
 
+  const slotWord = twoSlots ? "점심·저녁" : SLOT_LABELS[slots[0]];
+
   // ---------- 입력 단계 ----------
   if (view !== "result") {
     const stepIndex = STEPS.indexOf(view);
     const back = () =>
       stepIndex === 0 ? go("result") : go(STEPS[stepIndex - 1]);
-    const okCount = dates.length - unavailable.size;
+    const noCount = openKeys.filter((key) => unavailable.has(key)).length;
+    const okCount = openKeys.length - noCount;
+    const hasBlocked = Object.keys(blocked).length > 0;
+
+    // 한 시간대만 받는 모임은 달력으로, 날짜 단위로 다룬다
+    const onlySlot = slots[0];
+    const offDates = new Set(
+      dates.filter((date) => unavailable.has(slotKey(date, onlySlot))),
+    );
+    const blockedDates = new Map(
+      dates
+        .filter((date) => blocked[slotKey(date, onlySlot)])
+        .map((date) => [date, BLOCK_TEXT[blocked[slotKey(date, onlySlot)]]]),
+    );
+    const blockedKeys = new Map(
+      Object.entries(blocked).map(([key, reason]) => [key, BLOCK_TEXT[reason]]),
+    );
 
     return (
       <main className="page with-cta">
@@ -468,7 +607,7 @@ export default function EventClient() {
         {view === "relation" && (
           <>
             <h1 className="question">
-              {trimmedName}님은 주최자와
+              {trimmedName}님은 모임장과
               <br />
               어떤 사이인가요?
             </h1>
@@ -510,33 +649,58 @@ export default function EventClient() {
 
         {view === "dates" && (
           <>
-            <h1 className="question">안 되는 날을 눌러 주세요</h1>
-            <p className="lead">다 괜찮으면 그대로 저장하면 돼요.</p>
+            <h1 className="question">
+              {twoSlots
+                ? "안 되는 시간을 눌러 주세요"
+                : "안 되는 날을 눌러 주세요"}
+            </h1>
+            <p className="lead">
+              {twoSlots
+                ? "점심과 저녁을 따로 골라요. 다 괜찮으면 그대로 저장하면 돼요."
+                : `${slotWord} 모임이에요. 다 괜찮으면 그대로 저장하면 돼요.`}
+            </p>
+            {hasBlocked && (
+              <p className="lock-note">
+                회색 칸은 모임장 일정 때문에 고를 수 없어요.
+              </p>
+            )}
             <div className="quick">
               <button
                 type="button"
                 className="btn soft small"
                 onClick={() => setUnavailable(new Set())}
               >
-                전부 되는 날로
+                전부 되는 걸로
               </button>
               <button
                 type="button"
                 className="btn soft small"
-                onClick={() => setUnavailable(new Set(dates))}
+                onClick={() => setUnavailable(new Set(openKeys))}
               >
-                전부 안 되는 날로
+                전부 안 되는 걸로
               </button>
             </div>
             <div className="card">
-              <Calendar
-                mode="check"
-                dates={dates}
-                unavailable={unavailable}
-                onToggle={toggle}
-              />
+              {twoSlots ? (
+                <SlotList
+                  dates={dates}
+                  slots={slots}
+                  off={unavailable}
+                  blocked={blockedKeys}
+                  onToggle={toggle}
+                />
+              ) : (
+                <Calendar
+                  mode="check"
+                  dates={dates}
+                  off={offDates}
+                  blocked={blockedDates}
+                  onToggle={(date) => toggle(slotKey(date, onlySlot))}
+                />
+              )}
             </div>
             {existing &&
+              canEdit(existing.name) &&
               (confirming === existing.name ? (
                 <div className="confirm">
                   <span>{existing.name}님 응답을 지울까요?</span>
@@ -576,8 +740,17 @@ export default function EventClient() {
             )}
             {view === "dates" && !formError && (
               <p className="cta-note" aria-live="polite">
-                되는 날 <strong>{okCount}</strong>일, 안 되는 날{" "}
-                <strong>{unavailable.size}</strong>일
+                {twoSlots ? (
+                  <>
+                    되는 시간 <strong>{okCount}</strong>개, 안 되는 시간{" "}
+                    <strong>{noCount}</strong>개
+                  </>
+                ) : (
+                  <>
+                    되는 날 <strong>{okCount}</strong>일, 안 되는 날{" "}
+                    <strong>{noCount}</strong>일
+                  </>
+                )}
               </p>
             )}
             {view === "name" && (
@@ -627,18 +800,25 @@ export default function EventClient() {
   }
 
   // ---------- 결과 ----------
-  const total = responses.length;
   const mine = responses.find(
     (r) => r.name === trimmedName && readEditToken(event.id, r.name),
   );
-  const confirmed =
-    event.confirmed && dates.includes(event.confirmed.date)
-      ? event.confirmed
-      : null;
-  const notice = confirmed
-    ? `[${event.title}] ${formatKorean(confirmed.date)}${confirmed.station ? ` ${stationLabel(confirmed.station)}` : ""}에서 만나요!${event.memo ? ` (${event.memo})` : ""}`
-    : "";
   const best = ranking[0];
+  const bestSlot = best ? parseSlotKey(best.key) : null;
+  const confirmedText = confirmed
+    ? `${formatSlot(confirmed.date, confirmed.slot)}${confirmed.station ? `, ${stationLabel(confirmed.station)}` : ""}`
+    : "";
+  const notice = confirmed
+    ? `[${event.title}] ${confirmedText}${confirmed.station ? "에서" : "에"} 만나요!${event.memo ? ` (${event.memo})` : ""}`
+    : "";
+
+  // 내가 응답한 뒤에 모임장 일정으로 새로 빠진 칸
+  const newlyBlocked =
+    mine && seenBlocked
+      ? Object.keys(blocked)
+          .filter((key) => !seenBlocked.includes(key))
+          .sort()
+      : [];
 
   return (
     <main className="page with-cta">
@@ -650,17 +830,34 @@ export default function EventClient() {
         <h1 className="headline">{event.title}</h1>
         {event.memo && <p className="event-memo">{event.memo}</p>}
         <p className="event-range">
-          {formatShort(dates[0])}부터 {formatShort(dates[dates.length - 1])}까지
+          {formatShort(dates[0])}부터 {formatShort(dates[dates.length - 1])}
+          까지, {slotWord}
         </p>
       </header>
 
-      {confirmed && (
+      {newlyBlocked.length > 0 && (
+        <div className="alert" role="status">
+          <p className="alert-title">
+            모임장 일정으로 후보에서 빠진 때가 있어요
+          </p>
+          <p className="alert-body">
+            {newlyBlocked.slice(0, 4).map(formatSlotShort).join(", ")}
+            {newlyBlocked.length > 4 && ` 외 ${newlyBlocked.length - 4}개`}
+          </p>
+          <button
+            type="button"
+            className="btn white small"
+            onClick={markBlockedSeen}
+          >
+            확인했어요
+          </button>
+        </div>
+      )}
+
+      {confirmed ? (
         <div className="summary good confirmed">
           <p className="summary-sub">확정했어요</p>
-          <p className="summary-main">
-            {formatKorean(confirmed.date)}
-            {confirmed.station && `, ${stationLabel(confirmed.station)}`}
-          </p>
+          <p className="summary-main">{confirmedText}</p>
           <button
             type="button"
             className="btn white small"
@@ -669,216 +866,265 @@ export default function EventClient() {
             공지 문구 복사
           </button>
         </div>
+      ) : (
+        <div
+          className={`summary${total > 0 && perfectDays > 0 ? " good" : ""}`}
+        >
+          {total === 0 ? (
+            <>
+              <p className="summary-main">아직 응답한 사람이 없어요</p>
+              <p className="summary-sub">
+                링크를 보내고, 내 일정부터 표시해 보세요.
+              </p>
+            </>
+          ) : perfectDays > 0 ? (
+            <>
+              <p className="summary-main">
+                {total}명 모두 되는 날이 {perfectDays}일 있어요
+              </p>
+              <p className="summary-sub">달력에서 파란 날을 눌러 보세요.</p>
+            </>
+          ) : (
+            <>
+              <p className="summary-main">모두 되는 날은 아직 없어요</p>
+              {best && bestSlot && (
+                <p className="summary-sub">
+                  가장 많이 되는 때는 {formatSlot(bestSlot.date, bestSlot.slot)}
+                  , {total - best.missing.length}명이 돼요.
+                </p>
+              )}
+            </>
+          )}
+        </div>
       )}
-
-      <div
-        className={`summary${!confirmed && total > 0 && perfectCount > 0 ? " good" : ""}`}
-        hidden={Boolean(confirmed)}
-      >
-        {total === 0 ? (
-          <>
-            <p className="summary-main">아직 응답한 사람이 없어요</p>
-            <p className="summary-sub">
-              링크를 보내고, 내 일정부터 표시해 보세요.
-            </p>
-          </>
-        ) : perfectCount > 0 ? (
-          <>
-            <p className="summary-main">
-              {total}명 모두 되는 날이 {perfectCount}일 있어요
-            </p>
-            <p className="summary-sub">달력에서 파란 날을 눌러 보세요.</p>
-          </>
-        ) : (
-          <>
-            <p className="summary-main">모두 되는 날은 아직 없어요</p>
-            <p className="summary-sub">
-              가장 많이 되는 날은 {formatKorean(best.date)},{" "}
-              {total - best.missing.length}명이 돼요.
-            </p>
-          </>
-        )}
-      </div>
 
       <div className="card">
         <Calendar
           mode="result"
           dates={dates}
-          missing={missingMap}
-          total={total}
-          selected={total > 0 ? focusDate : null}
+          cells={cells}
+          selected={focusDate}
           onSelect={setPicked}
         />
-        {total > 0 && (
-          <p className="legend">
+        <p className="legend">
+          <span className="legend-item">
             <span className="legend-dot" aria-hidden="true" />
             모두 되는 날
-          </p>
-        )}
+          </span>
+          {blockedDays > 0 && (
+            <span className="legend-item">
+              <span className="legend-dot locked" aria-hidden="true" />
+              모임장 일정으로 빠진 날
+            </span>
+          )}
+        </p>
       </div>
 
-      {total > 0 && focus && (
+      {focusDate && (
         <section className="card detail" aria-live="polite">
-          <h2 className="detail-date">{formatKorean(focus.date)}</h2>
-          <p className="detail-count">
-            {focus.missing.length === 0
-              ? `${total}명 모두 돼요`
-              : `${total}명 중 ${total - focus.missing.length}명이 돼요`}
-          </p>
-          {focus.missing.length > 0 && (
-            <dl className="facts">
-              <dt>안 되는 사람</dt>
-              <dd>{focus.missing.join(", ")}</dd>
-            </dl>
-          )}
-          {meeting.length > 0 ? (
-            <dl className="facts">
-              <dt>모이기 좋은 역</dt>
-              <dd>
-                <a
-                  className="station-link"
-                  href={`https://map.naver.com/p/search/${encodeURIComponent(stationLabel(meeting[0].name))}`}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {stationLabel(meeting[0].name)}
-                </a>
-                {meeting[0].maxStops > 0 && (
-                  <span className="facts-sub">
-                    가장 먼 사람이 {meeting[0].maxStops}정거장
-                  </span>
+          <h2 className="detail-date">{formatKorean(focusDate)}</h2>
+          {slots.map((slot) => {
+            const key = slotKey(focusDate, slot);
+            const reason = blocked[key];
+            if (reason) {
+              return (
+                <div className="slot-block" key={slot}>
+                  {twoSlots && (
+                    <h3 className="slot-title">{SLOT_LABELS[slot]}</h3>
+                  )}
+                  <p className="facts-empty flat">
+                    {reason === "fixed"
+                      ? "모임장의 다른 모임이 이날로 확정돼서 고를 수 없어요."
+                      : "모임장 일정이 있어서 고를 수 없어요."}
+                  </p>
+                </div>
+              );
+            }
+            const missing = missingByKey.get(key) ?? [];
+            const meeting = meetingBySlot.get(slot) ?? [];
+            const isConfirmed =
+              confirmed?.date === focusDate && confirmed.slot === slot;
+            const drafting =
+              draft?.date === focusDate && draft.slot === slot ? draft : null;
+            return (
+              <div className="slot-block" key={slot}>
+                {twoSlots && (
+                  <h3 className="slot-title">{SLOT_LABELS[slot]}</h3>
                 )}
-                {meeting.length > 1 && (
-                  <span className="facts-sub">
-                    다른 후보:{" "}
-                    {meeting
-                      .slice(1)
-                      .map((p) => stationLabel(p.name))
-                      .join(", ")}
-                  </span>
-                )}
-              </dd>
-            </dl>
-          ) : (
-            <p className="facts-empty">
-              출발역을 적은 사람이 있으면 모이기 좋은 역을 추천해요.
-            </p>
-          )}
-          {meeting.length > 0 && (
-            <p className="fineprint">
-              출발역을 적은 {withStation}명 중 이날 되는 사람들의 정거장 수로
-              골랐어요. 환승 시간은 반영하지 않았어요.
-            </p>
-          )}
-          {adminToken &&
-            (confirmed?.date === focus.date ? (
-              <button
-                type="button"
-                className="btn soft block confirm-btn"
-                onClick={() => setConfirmed(null)}
-                disabled={saving}
-              >
-                확정 취소
-              </button>
-            ) : (
-              <>
-                {draft?.date !== focus.date ? (
-                  <button
-                    type="button"
-                    className="btn primary block confirm-btn"
-                    onClick={() =>
-                      setDraft({
-                        date: focus.date,
-                        station: meeting[0]?.name ?? "",
-                        searching: false,
-                      })
-                    }
-                  >
-                    이 날로 확정하기
-                  </button>
+                {total > 0 ? (
+                  <p className="detail-count">
+                    {missing.length === 0
+                      ? `${total}명 모두 돼요`
+                      : `${total}명 중 ${total - missing.length}명이 돼요`}
+                  </p>
                 ) : (
-                  <div className="confirm-panel">
-                    <p className="confirm-title">어디서 모일까요?</p>
-                    <div className="chips">
-                      {meeting.map((point) => (
-                        <button
-                          type="button"
-                          key={point.name}
-                          className={`chip${!draft.searching && draft.station === point.name ? " on" : ""}`}
-                          aria-pressed={
-                            !draft.searching && draft.station === point.name
-                          }
-                          onClick={() =>
-                            setDraft({
-                              date: focus.date,
-                              station: point.name,
-                              searching: false,
-                            })
-                          }
-                        >
-                          {stationLabel(point.name)}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        className={`chip${draft.searching ? " on" : ""}`}
-                        aria-pressed={draft.searching}
-                        onClick={() =>
-                          setDraft({
-                            date: focus.date,
-                            station: "",
-                            searching: true,
-                          })
-                        }
+                  <p className="facts-empty flat">아직 응답한 사람이 없어요.</p>
+                )}
+                {missing.length > 0 && (
+                  <dl className="facts">
+                    <dt>안 되는 사람</dt>
+                    <dd>{missing.join(", ")}</dd>
+                  </dl>
+                )}
+                {meeting.length > 0 && (
+                  <dl className="facts">
+                    <dt>모이기 좋은 역</dt>
+                    <dd>
+                      <a
+                        className="station-link"
+                        href={`https://map.naver.com/p/search/${encodeURIComponent(stationLabel(meeting[0].name))}`}
+                        target="_blank"
+                        rel="noreferrer"
                       >
-                        다른 역 검색
-                      </button>
-                      <button
-                        type="button"
-                        className={`chip${!draft.searching && draft.station === "" ? " on" : ""}`}
-                        aria-pressed={!draft.searching && draft.station === ""}
-                        onClick={() =>
-                          setDraft({
-                            date: focus.date,
-                            station: "",
-                            searching: false,
-                          })
-                        }
-                      >
-                        장소는 나중에
-                      </button>
-                    </div>
-                    {draft.searching && (
-                      <StationPicker
-                        value={draft.station}
-                        onChange={(next) =>
-                          setDraft({
-                            date: focus.date,
-                            station: next,
-                            searching: true,
-                          })
-                        }
-                      />
-                    )}
+                        {stationLabel(meeting[0].name)}
+                      </a>
+                      {meeting[0].maxStops > 0 && (
+                        <span className="facts-sub">
+                          가장 먼 사람이 {meeting[0].maxStops}정거장
+                        </span>
+                      )}
+                      {meeting.length > 1 && (
+                        <span className="facts-sub">
+                          다른 후보:{" "}
+                          {meeting
+                            .slice(1)
+                            .map((p) => stationLabel(p.name))
+                            .join(", ")}
+                        </span>
+                      )}
+                    </dd>
+                  </dl>
+                )}
+                {manage &&
+                  total > 0 &&
+                  (isConfirmed ? (
+                    <button
+                      type="button"
+                      className="btn soft block confirm-btn"
+                      onClick={() => setConfirmed(null)}
+                      disabled={saving}
+                    >
+                      확정 취소
+                    </button>
+                  ) : !drafting ? (
                     <button
                       type="button"
                       className="btn primary block confirm-btn"
                       onClick={() =>
-                        setConfirmed({
-                          date: draft.date,
-                          station: draft.station,
+                        setDraft({
+                          date: focusDate,
+                          slot,
+                          station: meeting[0]?.name ?? "",
+                          searching: false,
                         })
                       }
-                      disabled={saving || (draft.searching && !draft.station)}
                     >
-                      {formatKorean(draft.date)}
-                      {draft.station ? `, ${stationLabel(draft.station)}` : ""}
-                      {" 확정"}
+                      {twoSlots
+                        ? `이 날 ${SLOT_LABELS[slot]}으로 확정하기`
+                        : "이 날로 확정하기"}
                     </button>
-                  </div>
-                )}
-              </>
-            ))}
+                  ) : (
+                    <div className="confirm-panel">
+                      <p className="confirm-title">어디서 모일까요?</p>
+                      <div className="chips">
+                        {meeting.map((point) => (
+                          <button
+                            type="button"
+                            key={point.name}
+                            className={`chip${!drafting.searching && drafting.station === point.name ? " on" : ""}`}
+                            aria-pressed={
+                              !drafting.searching &&
+                              drafting.station === point.name
+                            }
+                            onClick={() =>
+                              setDraft({
+                                ...drafting,
+                                station: point.name,
+                                searching: false,
+                              })
+                            }
+                          >
+                            {stationLabel(point.name)}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          className={`chip${drafting.searching ? " on" : ""}`}
+                          aria-pressed={drafting.searching}
+                          onClick={() =>
+                            setDraft({
+                              ...drafting,
+                              station: "",
+                              searching: true,
+                            })
+                          }
+                        >
+                          다른 역 검색
+                        </button>
+                        <button
+                          type="button"
+                          className={`chip${!drafting.searching && drafting.station === "" ? " on" : ""}`}
+                          aria-pressed={
+                            !drafting.searching && drafting.station === ""
+                          }
+                          onClick={() =>
+                            setDraft({
+                              ...drafting,
+                              station: "",
+                              searching: false,
+                            })
+                          }
+                        >
+                          장소는 나중에
+                        </button>
+                      </div>
+                      {drafting.searching && (
+                        <StationPicker
+                          value={drafting.station}
+                          onChange={(next) =>
+                            setDraft({
+                              ...drafting,
+                              station: next,
+                              searching: true,
+                            })
+                          }
+                        />
+                      )}
+                      <button
+                        type="button"
+                        className="btn primary block confirm-btn"
+                        onClick={() =>
+                          setConfirmed({
+                            date: drafting.date,
+                            slot: drafting.slot,
+                            station: drafting.station,
+                          })
+                        }
+                        disabled={
+                          saving || (drafting.searching && !drafting.station)
+                        }
+                      >
+                        {formatSlot(drafting.date, drafting.slot)}
+                        {drafting.station
+                          ? `, ${stationLabel(drafting.station)}`
+                          : ""}
+                        {" 확정"}
+                      </button>
+                      <p className="fineprint">
+                        확정하면 내가 만든 다른 모임에서는 이날을 고를 수 없게
+                        돼요.
+                      </p>
+                    </div>
+                  ))}
+              </div>
+            );
+          })}
+          {withStation > 0 && (
+            <p className="fineprint">
+              모이기 좋은 역은 출발역을 적은 {withStation}명 중 그때 되는
+              사람들의 정거장 수로 골랐어요. 환승 시간은 반영하지 않았어요.
+            </p>
+          )}
         </section>
       )}
 
@@ -888,73 +1134,86 @@ export default function EventClient() {
             응답한 사람 <span className="count">{total}명</span>
           </h2>
           <ul className="card list">
-            {responses.map((r) => (
-              <li key={r.name} className="row">
-                <button
-                  type="button"
-                  className="row-button"
-                  onClick={() => startEdit(r.name)}
-                  disabled={!canEdit(r.name)}
-                >
-                  <span className="row-main">
-                    {r.name}
-                    {mine?.name === r.name && <span className="me">나</span>}
+            {responses.map((r) => {
+              const count = openKeys.filter((key) =>
+                r.unavailable.includes(key),
+              ).length;
+              return (
+                <li key={r.name} className="row">
+                  <button
+                    type="button"
+                    className="row-button"
+                    onClick={() => startEdit(r.name)}
+                    disabled={!canEdit(r.name)}
+                  >
+                    <span className="row-main">
+                      {r.name}
+                      {mine?.name === r.name && <span className="me">나</span>}
+                    </span>
+                    <span className="row-sub">
+                      {[r.relation, r.station && stationLabel(r.station)]
+                        .filter(Boolean)
+                        .join(", ") || "관계 미입력"}
+                    </span>
+                  </button>
+                  <span className="row-side">
+                    {count === 0
+                      ? "다 돼요"
+                      : twoSlots
+                        ? `${count}개 불가`
+                        : `${count}일 불가`}
                   </span>
-                  <span className="row-sub">
-                    {[r.relation, r.station && stationLabel(r.station)]
-                      .filter(Boolean)
-                      .join(", ") || "관계 미입력"}
-                  </span>
-                </button>
-                <span className="row-side">
-                  {r.unavailable.length === 0
-                    ? "다 돼요"
-                    : `${r.unavailable.length}일 불가`}
-                </span>
-                {adminToken &&
-                  (confirming === r.name ? (
-                    <button
-                      type="button"
-                      className="btn danger small"
-                      onClick={() => removeResponse(r.name)}
-                    >
-                      지우기
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="text-btn"
-                      onClick={() => setConfirming(r.name)}
-                    >
-                      삭제
-                    </button>
-                  ))}
-              </li>
-            ))}
+                  {manage &&
+                    (confirming === r.name ? (
+                      <button
+                        type="button"
+                        className="btn danger small"
+                        onClick={() => removeResponse(r.name)}
+                      >
+                        지우기
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-btn"
+                        onClick={() => setConfirming(r.name)}
+                      >
+                        삭제
+                      </button>
+                    ))}
+                </li>
+              );
+            })}
           </ul>
           <p className="fineprint">
-            {adminToken
-              ? "주최자는 이름을 눌러 누구의 응답이든 고칠 수 있어요."
+            {manage
+              ? "모임장은 이름을 눌러 누구의 응답이든 고칠 수 있어요."
               : "내 응답은 응답했던 기기에서만 고칠 수 있어요."}
           </p>
         </section>
       )}
 
-      {adminToken && (
+      {manage && (
         <section className="section">
           <h2 className="section-title">모임 관리</h2>
           <div className="card manage">
             <p className="manage-note">
-              이 기기에서 만든 모임이라 관리할 수 있어요. 다른 기기에서도
-              관리하려면 관리 링크를 보관해 두세요.
+              {isHost
+                ? "모임장으로 들어와 있어요. 내가 안 되는 시간은 모임장 일정에서 한 번만 적으면 모든 모임에 반영돼요."
+                : "이 기기에서 만든 모임이라 관리할 수 있어요."}
             </p>
-            <button
-              type="button"
-              className="btn soft block"
-              onClick={copyAdminLink}
-            >
-              관리 링크 복사
-            </button>
+            <Link className="btn soft block" href="/host">
+              모임장 일정 관리
+            </Link>
+            {adminToken && (
+              <button
+                type="button"
+                className="btn soft block"
+                onClick={copyAdminLink}
+              >
+                이 모임 관리 링크 복사
+              </button>
+            )}
             {confirming === "event" ? (
               <div className="confirm">
                 <span>
@@ -1020,13 +1279,25 @@ export default function EventClient() {
   );
 }
 
+/** 이 기기가 가진 관리 토큰과 모임장 토큰을 요청에 싣는다 */
+function tokenHeaders(eventId: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "x-admin-token": readAdminToken(eventId),
+    "x-host-token": readHostToken(),
+  };
+}
+
 type FetchResult =
   | { ok: true; payload: EventPayload }
   | { ok: false; error: string; network: boolean };
 
 async function fetchEvent(id: string): Promise<FetchResult> {
   try {
-    const res = await fetch(`/api/events/${id}`, { cache: "no-store" });
+    const res = await fetch(`/api/events/${id}`, {
+      cache: "no-store",
+      headers: tokenHeaders(id),
+    });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       return {

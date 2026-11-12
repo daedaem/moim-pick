@@ -1,4 +1,5 @@
 import {
+  canManage,
   cleanLine,
   EVENT_ID_PATTERN,
   fail,
@@ -9,6 +10,7 @@ import {
   sha256,
   tooMany,
 } from "@/lib/api";
+import { normalizeUnavailable } from "@/lib/slots";
 import { isStation } from "@/lib/stations";
 import { getStore } from "@/lib/store";
 import { LIMITS, RELATIONS, type MoimEvent } from "@/lib/types";
@@ -23,12 +25,15 @@ function validName(value: unknown): string | null {
 
 /**
  * 이미 있는 응답을 고치거나 지울 수 있는지 확인한다.
- * 응답한 기기(수정 토큰)이거나 주최자(관리 토큰)여야 한다.
- * 수정 토큰이 생기기 전에 저장된 응답(editHash 없음)은 주최자만 손댈 수 있다.
+ * 응답한 기기(수정 토큰)이거나 모임 관리 권한이 있어야 한다.
+ * 수정 토큰이 생기기 전에 저장된 응답(editHash 없음)은 관리자만 손댈 수 있다.
  */
-async function mayChange(request: Request, event: MoimEvent, editHash: string): Promise<boolean> {
-  const admin = request.headers.get("x-admin-token") ?? "";
-  if (admin && event.adminHash && (await sha256(admin)) === event.adminHash) return true;
+async function mayChange(
+  request: Request,
+  event: MoimEvent,
+  editHash: string,
+): Promise<boolean> {
+  if (await canManage(request, event)) return true;
   const edit = request.headers.get("x-edit-token") ?? "";
   return Boolean(edit && editHash && (await sha256(edit)) === editHash);
 }
@@ -43,22 +48,21 @@ export async function PUT(request: Request, ctx: Ctx) {
   const name = validName(body.name);
   if (!name) return fail(`이름을 1~${LIMITS.nameMax}자로 입력해 주세요.`);
   const relation = cleanLine(body.relation);
-  if (!(RELATIONS as readonly string[]).includes(relation)) return fail("관계를 골라 주세요.");
+  if (!(RELATIONS as readonly string[]).includes(relation))
+    return fail("관계를 골라 주세요.");
   const station = cleanLine(body.station);
-  if (station && !isStation(station)) return fail("목록에 있는 역을 골라 주세요.");
-  if (!Array.isArray(body.unavailable)) return fail("날짜 정보가 올바르지 않아요.");
+  if (station && !isStation(station))
+    return fail("목록에 있는 역을 골라 주세요.");
+  if (!Array.isArray(body.unavailable))
+    return fail("날짜 정보가 올바르지 않아요.");
 
   try {
     const store = getStore();
     const event = await store.getEvent(id);
     if (!event) return fail("모임을 찾을 수 없어요.", 404);
 
-    // 후보 날짜에 없는 값은 버린다
-    const candidates = new Set(event.dates);
-    const picked = new Set(
-      body.unavailable.filter((d): d is string => typeof d === "string" && candidates.has(d)),
-    );
-    const unavailable = event.dates.filter((d) => picked.has(d));
+    // 이 모임에 없는 칸은 버린다
+    const unavailable = normalizeUnavailable(event, body.unavailable);
 
     if (await tooMany(request, "respond", 120, store.hit)) {
       return fail("요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요.", 429);
@@ -70,7 +74,10 @@ export async function PUT(request: Request, ctx: Ctx) {
 
     if (currentHash === null) {
       if ((await store.countResponses(id)) >= LIMITS.participantsMax) {
-        return fail(`한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`, 409);
+        return fail(
+          `한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`,
+          409,
+        );
       }
       // 새 응답: 이 기기만 아는 수정 토큰을 발급한다
       editToken = newAdminToken();
@@ -82,7 +89,13 @@ export async function PUT(request: Request, ctx: Ctx) {
       );
     }
 
-    const response = { name, relation, station, unavailable, updatedAt: Date.now() };
+    const response = {
+      name,
+      relation,
+      station,
+      unavailable,
+      updatedAt: Date.now(),
+    };
     await store.putResponse(id, response, editHash);
     return json({ response, editToken });
   } catch (error) {

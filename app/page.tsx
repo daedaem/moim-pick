@@ -17,12 +17,14 @@ import {
   WEEKDAY_LABELS,
 } from "@/lib/dates";
 import {
+  ensureHostToken,
   parseRecent,
+  readHostToken,
   readRecentRaw,
   rememberAdminToken,
   rememberEvent,
 } from "@/lib/recent";
-import { LIMITS, type EventSummary } from "@/lib/types";
+import { LIMITS, type EventSummary, type Slot } from "@/lib/types";
 
 // 월~일 순서로 보여 준다 (값은 Date.getDay 기준: 일=0)
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -49,6 +51,7 @@ export default function HomePage() {
   const [endInput, setEnd] = useState<string | null>(null);
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
   const [searchable, setSearchable] = useState(true);
+  const [slotChoice, setSlotChoice] = useState<"L" | "D" | "LD">("LD");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -58,6 +61,11 @@ export default function HomePage() {
     subscribeNever,
     readRecentRaw,
     () => "",
+  );
+  const hasHost = useSyncExternalStore(
+    subscribeNever,
+    () => readHostToken() !== "",
+    () => false,
   );
   const recent = useMemo(() => parseRecent(recentRaw), [recentRaw]);
   const start = startInput ?? (today ? addDays(today, 1) : "");
@@ -118,8 +126,20 @@ export default function HomePage() {
     try {
       const res = await fetch("/api/events", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, memo, start, end, weekdays, searchable }),
+        headers: {
+          "Content-Type": "application/json",
+          // 내가 만든 모임들을 한 사람(모임장)의 것으로 묶는다
+          "x-host-token": ensureHostToken(),
+        },
+        body: JSON.stringify({
+          title,
+          memo,
+          start,
+          end,
+          weekdays,
+          searchable,
+          slots: slotChoice.split("") as Slot[],
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -206,6 +226,36 @@ export default function HomePage() {
                 />
               </label>
             </div>
+
+            <fieldset className="field">
+              <legend className="field-label">시간대</legend>
+
+              <div className="segmented">
+                {(
+                  [
+                    ["L", "점심만"],
+
+                    ["D", "저녁만"],
+
+                    ["LD", "점심·저녁 둘 다"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    type="button"
+
+                    key={value}
+
+                    className={`segment${slotChoice === value ? " on" : ""}`}
+
+                    aria-pressed={slotChoice === value}
+
+                    onClick={() => setSlotChoice(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
 
             <fieldset className="field">
               <legend className="field-label">후보에 넣을 요일</legend>
@@ -358,6 +408,24 @@ export default function HomePage() {
                 </Link>
               </li>
             ))}
+          </ul>
+        </section>
+      )}
+
+      {hasHost && (
+        <section className="section">
+          <ul className="card list">
+            <li>
+              <Link className="row" href="/host">
+                <span className="row-text">
+                  <span className="row-main">모임장 일정 관리</span>
+                  <span className="row-sub">
+                    내가 안 되는 시간, 내가 만든 모임
+                  </span>
+                </span>
+                <span className="row-chevron" aria-hidden="true" />
+              </Link>
+            </li>
           </ul>
         </section>
       )}

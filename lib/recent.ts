@@ -116,7 +116,11 @@ export function readEditToken(eventId: string, name: string): string {
   }
 }
 
-export function rememberEditToken(eventId: string, name: string, token: string) {
+export function rememberEditToken(
+  eventId: string,
+  name: string,
+  token: string,
+) {
   try {
     window.localStorage.setItem(`mp:edit:${eventId}:${name}`, token);
   } catch {
@@ -124,3 +128,82 @@ export function rememberEditToken(eventId: string, name: string, token: string) 
   }
 }
 
+// ---------- 모임장 ----------
+// 모임장 토큰: 여러 모임을 만든 "한 사람"임을 증명하는 값. 이 브라우저에만 저장된다.
+
+export function readHostToken(): string {
+  try {
+    return window.localStorage.getItem("mp:host") ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberHostToken(token: string) {
+  try {
+    window.localStorage.setItem("mp:host", token);
+  } catch {
+    /* 무시 */
+  }
+}
+
+/** 모임장 토큰이 없으면 새로 만든다 */
+export function ensureHostToken(): string {
+  const existing = readHostToken();
+  if (existing) return existing;
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  const token = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  rememberHostToken(token);
+  return readHostToken();
+}
+
+/** 주소에 붙어 온 토큰(#이름=값)을 꺼내고 주소에서는 지운다 */
+export function takeHashToken(name: "admin" | "host"): string {
+  const match = new RegExp(`^#${name}=([0-9a-f]{20,64})$`).exec(
+    window.location.hash,
+  );
+  if (!match) return "";
+  window.history.replaceState(null, "", window.location.pathname);
+  return match[1];
+}
+
+/** 이 기기에서 이미 안내를 본 "고를 수 없는 칸" 목록 */
+export function readSeenBlocked(eventId: string): string[] | null {
+  try {
+    const raw = window.localStorage.getItem(`mp:blocked-seen:${eventId}`);
+    const list = raw ? JSON.parse(raw) : null;
+    return Array.isArray(list) ? list : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberSeenBlocked(eventId: string, keys: string[]) {
+  try {
+    window.localStorage.setItem(
+      `mp:blocked-seen:${eventId}`,
+      JSON.stringify(keys),
+    );
+  } catch {
+    /* 무시 */
+  }
+}
+
+export function readFlag(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setFlag(key: string) {
+  try {
+    window.localStorage.setItem(key, "1");
+  } catch {
+    /* 무시 */
+  }
+}

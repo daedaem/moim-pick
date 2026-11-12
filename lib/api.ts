@@ -69,13 +69,35 @@ export async function sha256(value: string): Promise<string> {
   ).join("");
 }
 
-/** 응답으로 내보낼 때는 관리용 해시를 뺀다 */
-export function publicEvent<T extends { adminHash?: string }>(
-  event: T,
-): Omit<T, "adminHash"> {
-  const { adminHash: _omit, ...rest } = event;
-  void _omit;
+/** 응답으로 내보낼 때는 관리용·모임장 해시를 뺀다 */
+export function publicEvent<
+  T extends { adminHash?: string; hostHash?: string },
+>(event: T): Omit<T, "adminHash" | "hostHash"> {
+  const { adminHash: _a, hostHash: _h, ...rest } = event;
+  void _a;
+  void _h;
   return rest;
+}
+
+/** 요청에 실린 모임장 토큰의 해시 (없으면 빈 문자열) */
+export async function hostHashOf(request: Request): Promise<string> {
+  const token = request.headers.get("x-host-token") ?? "";
+  return /^[0-9a-f]{32,64}$/.test(token) ? sha256(token) : "";
+}
+
+/**
+ * 이 요청이 모임을 관리할 수 있는지.
+ * 모임을 만든 기기(관리 토큰)이거나, 그 모임의 모임장(모임장 토큰)이어야 한다.
+ */
+export async function canManage(
+  request: Request,
+  event: { adminHash?: string; hostHash?: string },
+): Promise<boolean> {
+  const admin = request.headers.get("x-admin-token") ?? "";
+  if (admin && event.adminHash && (await sha256(admin)) === event.adminHash)
+    return true;
+  const host = await hostHashOf(request);
+  return Boolean(host && event.hostHash && host === event.hostHash);
 }
 
 /**
@@ -88,7 +110,8 @@ export async function tooMany(
   limitPerHour: number,
   hit: (key: string, windowSeconds: number) => Promise<number>,
 ): Promise<boolean> {
-  const ip = (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
+  const ip =
+    (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() ||
+    "unknown";
   return (await hit(`${action}:${ip}`, 3600)) > limitPerHour;
 }
-

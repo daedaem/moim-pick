@@ -1,6 +1,7 @@
 import { cleanLine, EVENT_ID_PATTERN, fail, handleError, json, readBody } from "@/lib/api";
 import { getStore } from "@/lib/store";
-import { LIMITS } from "@/lib/types";
+import { isStation } from "@/lib/stations";
+import { LIMITS, RELATIONS } from "@/lib/types";
 
 type Ctx = RouteContext<"/api/events/[id]/responses">;
 
@@ -19,6 +20,10 @@ export async function PUT(request: Request, ctx: Ctx) {
 
   const name = validName(body.name);
   if (!name) return fail(`이름을 1~${LIMITS.nameMax}자로 입력해 주세요.`);
+  const relation = cleanLine(body.relation);
+  if (!(RELATIONS as readonly string[]).includes(relation)) return fail("관계를 골라 주세요.");
+  const station = cleanLine(body.station);
+  if (station && !isStation(station)) return fail("목록에 있는 역을 골라 주세요.");
   if (!Array.isArray(body.unavailable)) return fail("날짜 정보가 올바르지 않아요.");
 
   try {
@@ -38,7 +43,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       return fail(`한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`, 409);
     }
 
-    const response = { name, unavailable, updatedAt: Date.now() };
+    const response = { name, relation, station, unavailable, updatedAt: Date.now() };
     await store.putResponse(id, response);
     return json({ response });
   } catch (error) {

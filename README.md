@@ -45,3 +45,12 @@ npm run dev
 
 - 로그인이 없어서 링크를 아는 사람은 누구나 응답을 쓰고 고칠 수 있습니다. 민감한 내용은 적지 마세요.
 - 한 모임에 최대 60명, 후보 기간은 최대 92일입니다.
+
+## 지하철역 데이터
+
+`lib/stations.json`의 수도권 전철역 이름·좌표·역 사이 연결은 OpenStreetMap 데이터를 가공한 것입니다.
+© OpenStreetMap contributors, [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) (npm `korea-mcp` 0.1.0의 `data/subway.json`에서 변환).
+이 파일을 고쳐서 다시 배포할 때도 ODbL을 따라야 합니다.
+
+모이기 좋은 역은 정거장 수만으로 고릅니다. 환승 시간과 급행은 반영하지 않습니다.
+

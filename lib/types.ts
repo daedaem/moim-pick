@@ -9,6 +9,10 @@ export type MoimEvent = {
 
 export type MoimResponse = {
   name: string;
+  /** 주최자와의 관계 (RELATIONS 중 하나. 예전 응답은 빈 문자열) */
+  relation: string;
+  /** 출발하기 편한 지하철역 이름 (없으면 빈 문자열) */
+  station: string;
   /** 안 되는 날짜 */
   unavailable: string[];
   updatedAt: number;
@@ -26,3 +30,5 @@ export const LIMITS = {
   rangeDaysMax: 92,
   participantsMax: 60,
 } as const;
+
+export const RELATIONS = ["친구", "직장동료", "학교 선후배", "가족·친척", "기타"] as const;

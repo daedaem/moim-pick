@@ -16,7 +16,12 @@ export class StoreNotConfiguredError extends Error {
   }
 }
 
-type StoredResponse = { unavailable: string[]; updatedAt: number };
+type StoredResponse = {
+  relation?: string;
+  station?: string;
+  unavailable: string[];
+  updatedAt: number;
+};
 
 interface Store {
   createEvent(event: MoimEvent): Promise<void>;
@@ -75,6 +80,8 @@ function redisStore(redis: Redis): Store {
       if (!all) return [];
       return Object.entries(all).map(([name, value]) => ({
         name,
+        relation: typeof value?.relation === "string" ? value.relation : "",
+        station: typeof value?.station === "string" ? value.station : "",
         unavailable: Array.isArray(value?.unavailable) ? value.unavailable : [],
         updatedAt: Number(value?.updatedAt) || 0,
       }));
@@ -87,6 +94,8 @@ function redisStore(redis: Redis): Store {
     },
     async putResponse(id, response) {
       const value: StoredResponse = {
+        relation: response.relation,
+        station: response.station,
         unavailable: response.unavailable,
         updatedAt: response.updatedAt,
       };
@@ -125,7 +134,13 @@ function memoryStore(): Store {
       return events.get(id) ?? null;
     },
     async listResponses(id) {
-      return [...bucket(id).entries()].map(([name, v]) => ({ name, ...v }));
+      return [...bucket(id).entries()].map(([name, v]) => ({
+        name,
+        relation: v.relation ?? "",
+        station: v.station ?? "",
+        unavailable: v.unavailable,
+        updatedAt: v.updatedAt,
+      }));
     },
     async countResponses(id) {
       return bucket(id).size;
@@ -135,6 +150,8 @@ function memoryStore(): Store {
     },
     async putResponse(id, response) {
       bucket(id).set(response.name, {
+        relation: response.relation,
+        station: response.station,
         unavailable: response.unavailable,
         updatedAt: response.updatedAt,
       });

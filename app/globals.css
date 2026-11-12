@@ -785,3 +785,178 @@ input[type="date"].input {
     font-size: 26px;
   }
 }
+
+/* ---------- 관계, 출발역 ---------- */
+
+.field.spaced {
+  margin-top: 18px;
+}
+
+.field-help {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 44px;
+  padding: 0 14px;
+  background: var(--sheet);
+  border: 1.5px solid var(--rule);
+  border-radius: 22px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.chip.on {
+  border-color: var(--ink);
+  background: var(--mark);
+  color: var(--ink);
+}
+
+.gate {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1.5px dashed var(--off);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.station-results {
+  margin-top: 6px;
+  background: var(--sheet);
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.station-results li + li {
+  border-top: 1px solid var(--rule);
+}
+
+.station-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  background: none;
+  border: 0;
+  text-align: left;
+}
+
+.station-option:active {
+  background: var(--paper);
+}
+
+.station-none {
+  padding: 12px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.station-name {
+  font-weight: 700;
+}
+
+.station-picked {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 6px 0 12px;
+  background: var(--sheet);
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+}
+
+.station-clear {
+  margin-left: auto;
+  min-height: 40px;
+  padding: 0 10px;
+  background: none;
+  border: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.line-dots {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.line-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.line-dot i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.meet {
+  display: block;
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-size: 14px;
+}
+
+.meet a {
+  font-weight: 800;
+  text-underline-offset: 3px;
+}
+
+.meet-others {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.perfect-list .meet {
+  margin: 6px 0 4px 6px;
+}
+
+.meet-note {
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.person {
+  flex-wrap: wrap;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  text-align: left;
+}
+
+.credit {
+  margin-top: 40px;
+  font-size: 12px;
+  color: var(--muted);
+}

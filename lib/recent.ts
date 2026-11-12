@@ -57,3 +57,19 @@ export function rememberName(eventId: string, name: string) {
     /* 무시 */
   }
 }
+
+export function readStation(): string {
+  try {
+    return window.localStorage.getItem("mp:station") ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberStation(station: string) {
+  try {
+    window.localStorage.setItem("mp:station", station);
+  } catch {
+    /* 무시 */
+  }
+}

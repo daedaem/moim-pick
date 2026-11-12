@@ -19,6 +19,8 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/events/[id]
     const store = getStore();
     const event = await store.getEvent(id);
     if (!event) return fail("모임을 찾을 수 없어요. 링크가 맞는지 확인해 주세요.", 404);
+    // 검색 기능이 생기기 전에 만든 모임도 한 번 열리면 검색 목록에 올린다
+    if (event.searchable === undefined) await store.setIndexed(event, true);
     const responses = await store.listResponses(id);
     responses.sort((a, b) => a.updatedAt - b.updatedAt);
     const payload: EventPayload = { event: publicEvent(event), responses };

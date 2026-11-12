@@ -5,6 +5,8 @@ export type MoimEvent = {
   /** 후보 날짜 (YYYY-MM-DD, 오름차순) */
   dates: string[];
   createdAt: number;
+  /** 첫 화면에서 이름으로 검색되게 할지 (값이 없으면 허용) */
+  searchable?: boolean;
   /** 주최자가 확정한 날짜와 장소 */
   confirmed?: { date: string; station: string } | null;
   /** 관리용 토큰의 SHA-256 해시. 서버에만 두고 응답으로 내보내지 않는다 */
@@ -42,3 +44,7 @@ export const RELATIONS = [
   "가족·친척",
   "기타",
 ] as const;
+
+/** 검색 결과 한 줄 (참여자 정보는 담지 않는다) */
+export type EventSummary = { id: string; title: string; memo: string; start: string; end: string };
+

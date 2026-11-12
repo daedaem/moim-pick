@@ -345,11 +345,22 @@ export default function EventClient() {
     }
   }
 
-  const shareLink = () =>
-    copy(
-      window.location.origin + window.location.pathname,
-      "링크를 복사했어요",
-    );
+  // 휴대폰에서는 공유 창(카카오톡 등)을 띄우고, 안 되면 링크를 복사한다
+  const shareLink = async () => {
+    const url = window.location.origin + window.location.pathname;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({
+          title: `${event?.title ?? "모임"} 날짜 정하기`,
+          url,
+        });
+        return;
+      } catch (error) {
+        if ((error as Error)?.name === "AbortError") return; // 공유 창을 그냥 닫음
+      }
+    }
+    await copy(url, "링크를 복사했어요");
+  };
   const copyAdminLink = () =>
     copy(
       `${window.location.origin}${window.location.pathname}#admin=${adminToken}`,
@@ -462,7 +473,8 @@ export default function EventClient() {
                     aria-pressed={relation === item}
                     onClick={() => {
                       setRelation(item);
-                      go("station");
+                      // 고른 것이 눈에 보인 뒤에 다음으로 넘어간다
+                      setTimeout(() => go("station"), 280);
                     }}
                   >
                     {item}
@@ -902,7 +914,7 @@ export default function EventClient() {
       <div className="cta-bar">
         <div className="cta-inner two">
           <button type="button" className="btn soft" onClick={shareLink}>
-            링크 복사
+            초대하기
           </button>
           <button
             type="button"

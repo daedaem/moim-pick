@@ -77,7 +77,7 @@ export default function Calendar(props: CheckProps | ResultProps) {
                     onClick={() => props.onToggle(date)}
                   >
                     <span className="num">{day}</span>
-                    <span className="sub">{no ? "안 돼요" : ""}</span>
+                    <span className="sub">{no ? "안 돼요" : "가능"}</span>
                   </button>
                 );
               }

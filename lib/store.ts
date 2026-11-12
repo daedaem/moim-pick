@@ -29,6 +29,10 @@ interface Store {
   createEvent(event: MoimEvent): Promise<void>;
   getEvent(id: string): Promise<MoimEvent | null>;
   deleteEvent(id: string): Promise<void>;
+  /** 이름 검색 목록에 올리거나(true) 내린다(false) */
+  setIndexed(event: MoimEvent, indexed: boolean): Promise<void>;
+  /** 검색 목록에 있는 최근 모임들 (최신순) */
+  listIndexed(limit: number): Promise<MoimEvent[]>;
   listResponses(id: string): Promise<MoimResponse[]>;
   countResponses(id: string): Promise<number>;
   /** 응답이 없으면 null. 있으면 수정 토큰 해시(예전 응답은 빈 문자열) */
@@ -39,6 +43,7 @@ interface Store {
 
 const eventKey = (id: string) => `mp:event:${id}`;
 const responsesKey = (id: string) => `mp:event:${id}:responses`;
+const INDEX_KEY = "mp:index"; // 정렬 집합: 점수 = 만든 시각, 값 = 모임 ID
 
 /**
  * Vercel 연동 방식에 따라 환경변수 이름이 다르다.
@@ -82,6 +87,20 @@ function redisStore(redis: Redis): Store {
     },
     async deleteEvent(id) {
       await redis.del(eventKey(id), responsesKey(id));
+      await redis.zrem(INDEX_KEY, id);
+    },
+    async setIndexed(event, indexed) {
+      if (indexed) await redis.zadd(INDEX_KEY, { score: event.createdAt, member: event.id });
+      else await redis.zrem(INDEX_KEY, event.id);
+    },
+    async listIndexed(limit) {
+      const ids = await redis.zrange<string[]>(INDEX_KEY, 0, limit - 1, { rev: true });
+      if (ids.length === 0) return [];
+      const events = await redis.mget<(MoimEvent | null)[]>(...ids.map(eventKey));
+      // 기한이 지나 사라진 모임은 목록에서도 치운다
+      const gone = ids.filter((_, i) => !events[i]);
+      if (gone.length > 0) await redis.zrem(INDEX_KEY, ...gone);
+      return events.filter((e): e is MoimEvent => Boolean(e));
     },
     async listResponses(id) {
       const all = await redis.hgetall<Record<string, StoredResponse>>(
@@ -127,9 +146,11 @@ function memoryStore(): Store {
   const g = globalThis as unknown as {
     __moimEvents?: Map<string, MoimEvent>;
     __moimResponses?: Map<string, Map<string, StoredResponse>>;
+    __moimIndex?: Set<string>;
   };
   const events = (g.__moimEvents ??= new Map());
   const responses = (g.__moimResponses ??= new Map());
+  const index = (g.__moimIndex ??= new Set<string>());
   const bucket = (id: string) => {
     let b = responses.get(id);
     if (!b) {
@@ -148,6 +169,18 @@ function memoryStore(): Store {
     async deleteEvent(id) {
       events.delete(id);
       responses.delete(id);
+      index.delete(id);
+    },
+    async setIndexed(event, indexed) {
+      if (indexed) index.add(event.id);
+      else index.delete(event.id);
+    },
+    async listIndexed(limit) {
+      return [...index]
+        .map((id) => events.get(id))
+        .filter((e): e is MoimEvent => Boolean(e))
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, limit);
     },
     async listResponses(id) {
       return [...bucket(id).entries()].map(([name, v]) => ({

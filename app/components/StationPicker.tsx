@@ -17,8 +17,10 @@ export default function StationPicker({ value, onChange }: Props) {
   if (selected) {
     return (
       <div className="station-picked">
+        <span className="picked-check" aria-hidden="true" />
         <span className="station-name">{stationLabel(selected.name)}</span>
         <LineDots lines={selected.lines} />
+        <span className="sr-only">선택됨</span>
         <button
           type="button"
           className="station-clear"

@@ -11,7 +11,7 @@ import {
 } from "@/lib/api";
 import { buildCandidates, parseYmd } from "@/lib/dates";
 import { getStore } from "@/lib/store";
-import { LIMITS, type MoimEvent } from "@/lib/types";
+import { LIMITS, type EventSummary, type MoimEvent } from "@/lib/types";
 
 // 모임 만들기
 export async function POST(request: Request) {
@@ -52,10 +52,37 @@ export async function POST(request: Request) {
       dates,
       createdAt: Date.now(),
       adminHash: await sha256(adminToken),
+      searchable: body.searchable !== false,
     };
     await store.createEvent(event);
+    if (event.searchable) await store.setIndexed(event, true);
     return json({ event: publicEvent(event), adminToken }, 201);
   } catch (error) {
     return handleError(error);
   }
 }
+
+// 모임 이름으로 찾기. 검색을 허용한 모임만, 제목과 기간만 돌려준다.
+export async function GET(request: Request) {
+  const q = cleanLine(new URL(request.url).searchParams.get("q")).toLowerCase();
+  if (q.length < 2) return json({ events: [] });
+  try {
+    const events = await getStore().listIndexed(300);
+    const compact = q.replace(/\s+/g, "");
+    const found: EventSummary[] = events
+      .filter((e) => e.searchable !== false)
+      .filter((e) => e.title.toLowerCase().replace(/\s+/g, "").includes(compact))
+      .slice(0, 10)
+      .map((e) => ({
+        id: e.id,
+        title: e.title,
+        memo: e.memo,
+        start: e.dates[0],
+        end: e.dates[e.dates.length - 1],
+      }));
+    return json({ events: found });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+

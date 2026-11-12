@@ -470,6 +470,7 @@ input[type="date"].input {
 
 .option.on {
   border-color: var(--blue);
+  background: var(--blue-soft);
   color: var(--blue);
 }
 
@@ -668,12 +669,17 @@ input[type="date"].input {
 }
 
 .cell.pick .num {
-  background: var(--field);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.cell.pick .sub {
+  color: var(--blue);
 }
 
 .cell.pick.no .num {
-  background: var(--red-soft);
-  color: var(--red);
+  background: var(--red);
+  color: #fff;
   text-decoration: line-through;
   text-decoration-thickness: 2px;
 }
@@ -998,4 +1004,90 @@ input[type="date"].input {
   font-weight: 700;
   color: var(--blue);
   vertical-align: 1px;
+}
+
+/* ---------- 선택 표시, 찾기 ---------- */
+
+.picked-check {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--blue)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22'%3E%3Cpath d='M6.500 11.300l3 3 6-6.300' fill='none' stroke='%23fff' stroke-width='2.200' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 22px no-repeat;
+}
+
+.hint.muted {
+  color: var(--muted);
+}
+
+.results {
+  margin-top: 12px;
+}
+
+.empty-result {
+  display: grid;
+  gap: 10px;
+}
+
+.row-text {
+  flex: 1;
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  text-align: left;
+}
+
+.switch-title {
+  display: block;
+  font-weight: 700;
+}
+
+.switch-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--sub);
+}
+
+.switch {
+  flex: none;
+  position: relative;
+  width: 50px;
+  height: 30px;
+  border-radius: 15px;
+  background: #d6dbe1;
+  transition: background 0.15s ease;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+.switch.on {
+  background: var(--blue);
+}
+
+.switch.on::after {
+  transform: translateX(20px);
 }

@@ -227,9 +227,22 @@ a {
   font-weight: 700;
 }
 
+/* 아이폰에서는 날짜 글자가 칸 위쪽에 붙고 가운데로 몰린다.
+   칸 안쪽 높이(52px - 테두리 4px)만큼 줄 높이를 줘서 세로 가운데로, 글자는 왼쪽으로 맞춘다. */
 input[type="date"].input {
   display: block;
+  line-height: 48px;
   text-align: left;
+}
+
+input[type="date"].input::-webkit-date-and-time-value {
+  margin: 0;
+  text-align: left;
+}
+
+input[type="date"].input::-webkit-datetime-edit {
+  padding: 0;
+  line-height: 48px;
 }
 
 .weekday-row {

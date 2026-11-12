@@ -77,3 +77,18 @@ export function publicEvent<T extends { adminHash?: string }>(
   void _omit;
   return rest;
 }
+
+/**
+ * 같은 곳(IP)에서 너무 자주 요청하면 true. 한 시간 단위로 센다.
+ * 회사·학교처럼 여러 사람이 한 IP를 쓰는 경우가 있어 한도는 넉넉하게 잡는다.
+ */
+export async function tooMany(
+  request: Request,
+  action: string,
+  limitPerHour: number,
+  hit: (key: string, windowSeconds: number) => Promise<number>,
+): Promise<boolean> {
+  const ip = (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "unknown";
+  return (await hit(`${action}:${ip}`, 3600)) > limitPerHour;
+}
+

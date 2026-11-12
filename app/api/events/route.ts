@@ -8,6 +8,7 @@ import {
   publicEvent,
   readBody,
   sha256,
+  tooMany,
 } from "@/lib/api";
 import { buildCandidates, parseYmd } from "@/lib/dates";
 import { getStore } from "@/lib/store";
@@ -43,6 +44,9 @@ export async function POST(request: Request) {
 
   try {
     const store = getStore();
+    if (await tooMany(request, "create", 20, store.hit)) {
+      return fail("모임을 너무 많이 만들었어요. 한 시간 뒤에 다시 시도해 주세요.", 429);
+    }
     // 관리용 토큰은 만든 사람에게 이번 한 번만 알려 주고, 서버에는 해시만 남긴다
     const adminToken = newAdminToken();
     const event: MoimEvent = {

@@ -29,6 +29,8 @@ interface Store {
   createEvent(event: MoimEvent): Promise<void>;
   getEvent(id: string): Promise<MoimEvent | null>;
   deleteEvent(id: string): Promise<void>;
+  /** 정해진 시간 동안 같은 키로 몇 번째 요청인지 센다 (도배 방지용) */
+  hit(key: string, windowSeconds: number): Promise<number>;
   /** 이름 검색 목록에 올리거나(true) 내린다(false) */
   setIndexed(event: MoimEvent, indexed: boolean): Promise<void>;
   /** 검색 목록에 있는 최근 모임들 (최신순) */
@@ -88,6 +90,11 @@ function redisStore(redis: Redis): Store {
     async deleteEvent(id) {
       await redis.del(eventKey(id), responsesKey(id));
       await redis.zrem(INDEX_KEY, id);
+    },
+    async hit(key, windowSeconds) {
+      const count = await redis.incr(`mp:rate:${key}`);
+      if (count === 1) await redis.expire(`mp:rate:${key}`, windowSeconds);
+      return count;
     },
     async setIndexed(event, indexed) {
       if (indexed) await redis.zadd(INDEX_KEY, { score: event.createdAt, member: event.id });
@@ -151,6 +158,7 @@ function memoryStore(): Store {
   const events = (g.__moimEvents ??= new Map());
   const responses = (g.__moimResponses ??= new Map());
   const index = (g.__moimIndex ??= new Set<string>());
+  const hits = new Map<string, { count: number; until: number }>();
   const bucket = (id: string) => {
     let b = responses.get(id);
     if (!b) {
@@ -170,6 +178,16 @@ function memoryStore(): Store {
       events.delete(id);
       responses.delete(id);
       index.delete(id);
+    },
+    async hit(key, windowSeconds) {
+      const now = Date.now();
+      const entry = hits.get(key);
+      if (!entry || entry.until < now) {
+        hits.set(key, { count: 1, until: now + windowSeconds * 1000 });
+        return 1;
+      }
+      entry.count += 1;
+      return entry.count;
     },
     async setIndexed(event, indexed) {
       if (indexed) index.add(event.id);

@@ -1091,3 +1091,47 @@ input[type="date"].input {
 .switch.on::after {
   transform: translateX(20px);
 }
+
+/* ---------- 확정 장소 고르기 ---------- */
+
+.confirm-panel {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.confirm-title {
+  margin-bottom: 10px;
+  font-weight: 800;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 44px;
+  padding: 0 14px;
+  background: var(--field);
+  border: 2px solid transparent;
+  border-radius: 22px;
+  font-weight: 700;
+  color: var(--sub);
+}
+
+.chip.on {
+  border-color: var(--blue);
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.confirm-panel .station-search,
+.confirm-panel .station-picked {
+  margin-top: 12px;
+}
+
+.confirm-panel .station-search .input {
+  background: var(--field);
+}

@@ -44,6 +44,12 @@ export default function EventClient() {
   const [picked, setPicked] = useState<string | null>(null);
   const [adminToken, setAdminToken] = useState("");
   const [confirming, setConfirming] = useState(""); // "event" 또는 지우려는 사람 이름
+  // 확정하려고 고르는 중인 날짜와 역
+  const [draft, setDraft] = useState<{
+    date: string;
+    station: string;
+    searching: boolean;
+  } | null>(null);
   const restored = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -111,7 +117,8 @@ export default function EventClient() {
       } else {
         // 다른 모임에서 골랐던 출발역은 다시 묻지 않는다
         setStation(readStation());
-        setView("name");
+        // 이미 확정된 모임은 결과(확정 내용)부터 보여 준다
+        setView(event.confirmed ? "result" : "name");
       }
     });
     return () => {
@@ -302,6 +309,7 @@ export default function EventClient() {
         showToast(body.error ?? "확정하지 못했어요.");
         return;
       }
+      setDraft(null);
       await load();
       window.scrollTo({ top: 0 });
       showToast(next ? "확정했어요" : "확정을 취소했어요");
@@ -773,21 +781,103 @@ export default function EventClient() {
                 확정 취소
               </button>
             ) : (
-              <button
-                type="button"
-                className="btn primary block confirm-btn"
-                onClick={() =>
-                  setConfirmed({
-                    date: focus.date,
-                    station: meeting[0]?.name ?? "",
-                  })
-                }
-                disabled={saving}
-              >
-                {meeting[0]
-                  ? `이 날, ${stationLabel(meeting[0].name)}으로 확정하기`
-                  : "이 날로 확정하기"}
-              </button>
+              <>
+                {draft?.date !== focus.date ? (
+                  <button
+                    type="button"
+                    className="btn primary block confirm-btn"
+                    onClick={() =>
+                      setDraft({
+                        date: focus.date,
+                        station: meeting[0]?.name ?? "",
+                        searching: false,
+                      })
+                    }
+                  >
+                    이 날로 확정하기
+                  </button>
+                ) : (
+                  <div className="confirm-panel">
+                    <p className="confirm-title">어디서 모일까요?</p>
+                    <div className="chips">
+                      {meeting.map((point) => (
+                        <button
+                          type="button"
+                          key={point.name}
+                          className={`chip${!draft.searching && draft.station === point.name ? " on" : ""}`}
+                          aria-pressed={
+                            !draft.searching && draft.station === point.name
+                          }
+                          onClick={() =>
+                            setDraft({
+                              date: focus.date,
+                              station: point.name,
+                              searching: false,
+                            })
+                          }
+                        >
+                          {stationLabel(point.name)}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className={`chip${draft.searching ? " on" : ""}`}
+                        aria-pressed={draft.searching}
+                        onClick={() =>
+                          setDraft({
+                            date: focus.date,
+                            station: "",
+                            searching: true,
+                          })
+                        }
+                      >
+                        다른 역 검색
+                      </button>
+                      <button
+                        type="button"
+                        className={`chip${!draft.searching && draft.station === "" ? " on" : ""}`}
+                        aria-pressed={!draft.searching && draft.station === ""}
+                        onClick={() =>
+                          setDraft({
+                            date: focus.date,
+                            station: "",
+                            searching: false,
+                          })
+                        }
+                      >
+                        장소는 나중에
+                      </button>
+                    </div>
+                    {draft.searching && (
+                      <StationPicker
+                        value={draft.station}
+                        onChange={(next) =>
+                          setDraft({
+                            date: focus.date,
+                            station: next,
+                            searching: true,
+                          })
+                        }
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="btn primary block confirm-btn"
+                      onClick={() =>
+                        setConfirmed({
+                          date: draft.date,
+                          station: draft.station,
+                        })
+                      }
+                      disabled={saving || (draft.searching && !draft.station)}
+                    >
+                      {formatKorean(draft.date)}
+                      {draft.station ? `, ${stationLabel(draft.station)}` : ""}
+                      {" 확정"}
+                    </button>
+                  </div>
+                )}
+              </>
             ))}
         </section>
       )}

@@ -7,6 +7,7 @@ import {
   newAdminToken,
   readBody,
   sha256,
+  tooMany,
 } from "@/lib/api";
 import { isStation } from "@/lib/stations";
 import { getStore } from "@/lib/store";
@@ -58,6 +59,10 @@ export async function PUT(request: Request, ctx: Ctx) {
       body.unavailable.filter((d): d is string => typeof d === "string" && candidates.has(d)),
     );
     const unavailable = event.dates.filter((d) => picked.has(d));
+
+    if (await tooMany(request, "respond", 120, store.hit)) {
+      return fail("요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요.", 429);
+    }
 
     const currentHash = await store.getEditHash(id, name);
     let editHash = currentHash ?? "";

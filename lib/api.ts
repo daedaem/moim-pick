@@ -1,3 +1,5 @@
+import { unstable_rethrow } from "next/navigation";
+import { isSiteAdmin } from "./admin";
 import { StoreNotConfiguredError } from "./store";
 
 export function json(data: unknown, status = 200) {
@@ -12,6 +14,8 @@ export function fail(message: string, status = 400) {
 }
 
 export function handleError(error: unknown) {
+  // Next.js가 내부적으로 던지는 신호(미리 그리기 중단 등)는 삼키지 않고 그대로 넘긴다
+  unstable_rethrow(error);
   if (error instanceof StoreNotConfiguredError) {
     return fail(
       "저장소가 아직 연결되지 않았어요. Vercel 프로젝트의 Storage 탭에서 Upstash Redis를 연결한 뒤 다시 배포해 주세요.",
@@ -104,7 +108,7 @@ export async function hostHashOf(
 
 /**
  * 이 요청이 모임을 관리할 수 있는지.
- * 모임을 만든 기기(관리 토큰)이거나, 그 모임의 모임장이어야 한다.
+ * 모임을 만든 기기(관리 토큰)이거나, 그 모임의 모임장이거나, 사이트 관리자여야 한다.
  */
 export async function canManage(
   request: Request,
@@ -114,9 +118,11 @@ export async function canManage(
   const admin = request.headers.get("x-admin-token") ?? "";
   if (admin && event.adminHash && (await sha256(admin)) === event.adminHash)
     return true;
-  if (!event.hostHash) return false;
   const host = await hostHashOf(request, store);
-  return Boolean(host && host === event.hostHash);
+  if (!host) return false;
+  if (event.hostHash && host === event.hostHash) return true;
+  // 사이트 관리자 계정은 모든 모임을 관리할 수 있다
+  return isSiteAdmin(await store.getHostAccount(host));
 }
 
 /**
@@ -133,4 +139,13 @@ export async function tooMany(
     (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() ||
     "unknown";
   return (await hit(`${action}:${ip}`, 3600)) > limitPerHour;
+}
+
+/** 이 요청이 사이트 관리자 계정으로 로그인한 것인지 */
+export async function isAdminRequest(
+  request: Request,
+  store: SessionSource,
+): Promise<boolean> {
+  const host = await hostHashOf(request, store);
+  return host ? isSiteAdmin(await store.getHostAccount(host)) : false;
 }

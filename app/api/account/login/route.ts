@@ -8,6 +8,7 @@ import {
   openSession,
   PIN_PATTERN,
 } from "@/lib/account";
+import { ADMIN_FAILS_PER_DAY, isSiteAdmin } from "@/lib/admin";
 import { getStore } from "@/lib/store";
 
 // 모임장 로그인 (아이디 + 숫자 4자리)
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
     const store = getStore();
     // 숫자 4자리는 경우의 수가 적어서, 틀린 횟수가 쌓이면 맞는 숫자여도 받지 않는다
     const [recent, today] = await Promise.all([store.peek(`pin15:${id}`), store.peek(`pinday:${id}`)]);
-    if (today >= FAILS_PER_DAY) {
+    if (today >= (isSiteAdmin(id) ? ADMIN_FAILS_PER_DAY : FAILS_PER_DAY)) {
       return fail("오늘 너무 많이 틀려서 잠겼어요. 내일 다시 시도해 주세요.", 429);
     }
     if (recent >= FAILS_PER_15_MIN) {

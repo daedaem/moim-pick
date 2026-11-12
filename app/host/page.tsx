@@ -29,6 +29,17 @@ type HostEvent = {
   confirmed: { date: string; slot: Slot; station: string } | null;
 };
 
+/** 사이트 관리자에게만 보이는 전체 모임 목록의 한 줄 */
+type AdminEvent = {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  responses: number;
+  owner: string | null;
+  searchable: boolean;
+};
+
 const DAYS_AHEAD = 100;
 
 export default function HostPage() {
@@ -39,6 +50,10 @@ export default function HostPage() {
   /** 로그인한 계정 아이디 (계정 없이 쓰는 중이면 빈 문자열) */
   const [account, setAccount] = useState("");
   const [showAccount, setShowAccount] = useState(false);
+  /** 사이트 관리자 계정이면 모든 모임을 본다 */
+  const [siteAdmin, setSiteAdmin] = useState(false);
+  const [allEvents, setAllEvents] = useState<AdminEvent[]>([]);
+  const [removing, setRemoving] = useState(""); // 지우기 전에 한 번 더 묻는 모임 ID
   const [loaded, setLoaded] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [editDate, setEditDate] = useState<string | null>(null);
@@ -64,6 +79,17 @@ export default function HostPage() {
       setBlocks(new Set<string>(body.blocks));
       setEvents(body.events);
       setAccount(typeof body.account === "string" ? body.account : "");
+      setSiteAdmin(body.siteAdmin === true);
+      if (body.siteAdmin === true) {
+        const all = await fetch("/api/admin/events", {
+          cache: "no-store",
+          headers: { "x-host-token": hostToken },
+        });
+        const list = await all.json().catch(() => ({}));
+        setAllEvents(all.ok && Array.isArray(list.events) ? list.events : []);
+      } else {
+        setAllEvents([]);
+      }
       setLoaded(true);
       setError("");
     } catch {
@@ -174,11 +200,37 @@ export default function HostPage() {
     forgetLogin();
     setToken("");
     setAccount("");
+    setSiteAdmin(false);
+    setAllEvents([]);
     setLoaded(false);
     setBlocks(new Set());
     setEvents([]);
     setEditDate(null);
     showToast("로그아웃했어요");
+  }
+
+  /** 사이트 관리자: 아무 모임이나 지운다 */
+  async function removeEvent(eventId: string) {
+    if (saving || !token) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}`, {
+        method: "DELETE",
+        headers: { "x-host-token": token },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(body.error ?? "지우지 못했어요.");
+        return;
+      }
+      setRemoving("");
+      await load(token);
+      showToast("모임을 지웠어요");
+    } catch {
+      showToast("연결이 끊겼어요. 다시 시도해 주세요.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const fixed = events.filter((e) => e.confirmed);
@@ -264,6 +316,7 @@ export default function HostPage() {
             <div className="account-bar">
               <span>
                 <strong>{account}</strong> 계정으로 로그인했어요
+                {siteAdmin && <span className="me">관리자</span>}
               </span>
               <button type="button" className="text-btn" onClick={logout}>
                 로그아웃
@@ -351,6 +404,58 @@ export default function HostPage() {
                   </li>
                 ))}
               </ul>
+            </section>
+          )}
+
+          {siteAdmin && (
+            <section className="section">
+              <h2 className="section-title">
+                전체 모임 <span className="count">{allEvents.length}개</span>
+              </h2>
+              <ul className="card list">
+                {allEvents.map((e) => (
+                  <li key={e.id} className="row">
+                    <Link className="row-text plain-link" href={`/e/${e.id}`}>
+                      <span className="row-main">{e.title}</span>
+                      <span className="row-sub">
+                        응답 {e.responses}명, 만든 사람 {e.owner ?? "계정 없음"}
+                        {!e.searchable && ", 검색 꺼짐"}
+                      </span>
+                    </Link>
+                    {removing === e.id ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn danger small"
+                          onClick={() => removeEvent(e.id)}
+                          disabled={saving}
+                        >
+                          지우기
+                        </button>
+                        <button
+                          type="button"
+                          className="text-btn"
+                          onClick={() => setRemoving("")}
+                        >
+                          취소
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-btn"
+                        onClick={() => setRemoving(e.id)}
+                      >
+                        삭제
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="fineprint">
+                관리자 계정에만 보여요. 지우면 그 모임의 응답도 함께 사라지고
+                되돌릴 수 없어요.
+              </p>
             </section>
           )}
 

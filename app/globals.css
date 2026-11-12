@@ -1650,3 +1650,7 @@ span.cell.day {
 .btn.idea {
   margin-top: 12px;
 }
+
+.plain-link {
+  text-decoration: none;
+}

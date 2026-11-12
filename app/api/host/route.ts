@@ -1,5 +1,6 @@
 import { fail, handleError, hostHashOf, json, readBody, tooMany } from "@/lib/api";
 import { confirmedOf, eventSlots, parseSlotKey } from "@/lib/slots";
+import { isSiteAdmin } from "@/lib/admin";
 import { getStore } from "@/lib/store";
 
 const BLOCKS_MAX = 600;
@@ -18,6 +19,7 @@ export async function GET(request: Request) {
     events.sort((a, b) => b.createdAt - a.createdAt);
     return json({
       account,
+      siteAdmin: isSiteAdmin(account),
       blocks: host?.blocks ?? [],
       events: events.map((e) => ({
         id: e.id,

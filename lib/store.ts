@@ -62,6 +62,8 @@ interface Store {
   /** 모임장이 만든 모임들 */
   listHostEvents(hostHash: string): Promise<MoimEvent[]>;
   deleteHost(hostHash: string): Promise<void>;
+  /** 저장된 모든 모임 (사이트 관리자용) */
+  listAllEvents(limit: number): Promise<MoimEvent[]>;
   /** 지금까지 센 횟수 (hit 으로 센 값을 늘리지 않고 읽기만 한다) */
   peek(key: string): Promise<number>;
   getAccount(id: string): Promise<HostAccount | null>;
@@ -133,6 +135,25 @@ function redisStore(redis: Redis): Store {
     },
     async deleteHost(hostHash) {
       await redis.del(hostKey(hostHash), hostEventsKey(hostHash));
+    },
+    async listAllEvents(limit) {
+      // 모임 키(mp:event:아이디)만 훑는다. 응답 키(…:responses)는 뺀다.
+      const keys: string[] = [];
+      let cursor = "0";
+      do {
+        const [next, batch] = await redis.scan(cursor, {
+          match: "mp:event:*",
+          count: 200,
+        });
+        cursor = String(next);
+        for (const key of batch)
+          if (/^mp:event:[a-z0-9]{8}$/.test(key)) keys.push(key);
+      } while (cursor !== "0" && keys.length < limit);
+      if (keys.length === 0) return [];
+      const events = await redis.mget<(MoimEvent | null)[]>(
+        ...keys.slice(0, limit),
+      );
+      return events.filter((e): e is MoimEvent => Boolean(e));
     },
     async peek(key) {
       return Number((await redis.get<number>(`mp:rate:${key}`)) ?? 0);
@@ -314,6 +335,9 @@ function memoryStore(): Store {
     async deleteHost(hostHash) {
       hosts.delete(hostHash);
       hostEvents.delete(hostHash);
+    },
+    async listAllEvents(limit) {
+      return [...events.values()].slice(0, limit);
     },
     async peek(key) {
       const entry = hits.get(key);

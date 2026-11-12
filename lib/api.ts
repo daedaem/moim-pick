@@ -107,6 +107,20 @@ export async function hostHashOf(
 }
 
 /**
+ * 로그인한 계정으로 온 요청이면 모임장 해시와 계정 이름을 돌려준다. 아니면 null.
+ * 모임 만들기처럼 로그인이 꼭 필요한 일에 쓴다.
+ */
+export async function accountOf(
+  request: Request,
+  store: SessionSource,
+): Promise<{ hostHash: string; account: string } | null> {
+  const hostHash = await hostHashOf(request, store);
+  if (!hostHash) return null;
+  const account = await store.getHostAccount(hostHash);
+  return account ? { hostHash, account } : null;
+}
+
+/**
  * 이 요청이 모임을 관리할 수 있는지.
  * 모임을 만든 기기(관리 토큰)이거나, 그 모임의 모임장이거나, 사이트 관리자여야 한다.
  */

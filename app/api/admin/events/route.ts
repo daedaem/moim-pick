@@ -6,12 +6,17 @@ import { getStore } from "@/lib/store";
 export async function GET(request: Request) {
   try {
     const store = getStore();
-    if (!(await isAdminRequest(request, store))) return fail("관리자만 볼 수 있어요.", 403);
+    if (!(await isAdminRequest(request, store)))
+      return fail("관리자만 볼 수 있어요.", 403);
     const events = await store.listAllEvents(500);
     events.sort((a, b) => b.createdAt - a.createdAt);
-    const counts = await Promise.all(events.map((e) => store.countResponses(e.id)));
+    const counts = await Promise.all(
+      events.map((e) => store.countResponses(e.id)),
+    );
     const owners = await Promise.all(
-      events.map((e) => (e.hostHash ? store.getHostAccount(e.hostHash) : Promise.resolve(null))),
+      events.map((e) =>
+        e.hostHash ? store.getHostAccount(e.hostHash) : Promise.resolve(null),
+      ),
     );
     return json({
       events: events.map((e, i) => ({

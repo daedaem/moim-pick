@@ -5,7 +5,8 @@ import { getStore } from "@/lib/store";
 export async function POST(request: Request) {
   const token = request.headers.get("x-host-token") ?? "";
   try {
-    if (/^[0-9a-f]{32,64}$/.test(token)) await getStore().deleteSession(await sha256(token));
+    if (/^[0-9a-f]{32,64}$/.test(token))
+      await getStore().deleteSession(await sha256(token));
     return json({ ok: true });
   } catch (error) {
     return handleError(error);

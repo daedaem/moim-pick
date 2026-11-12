@@ -8,6 +8,7 @@ import { readAccountId } from "@/lib/recent";
 
 const subscribeNever = () => () => {};
 const readJoin = () => window.location.search.includes("join=1");
+const readFromCreate = () => window.location.search.includes("from=create");
 
 /** 로그인 / 회원가입 화면 */
 export default function LoginPage() {
@@ -19,19 +20,31 @@ export default function LoginPage() {
     () => false,
   );
   const join = useSyncExternalStore(subscribeNever, readJoin, () => false);
+  const fromCreate = useSyncExternalStore(
+    subscribeNever,
+    readFromCreate,
+    () => false,
+  );
 
   return (
     <main className="page">
       <div className="step-top">
-        <Link className="back" href="/">
-          모임 찾기
-        </Link>
+        <button
+          type="button"
+          className="back"
+          onClick={() =>
+            window.history.length > 1 ? router.back() : router.replace("/")
+          }
+        >
+          이전
+        </button>
       </div>
 
       <h1 className="question">{join ? "회원가입" : "로그인"}</h1>
       <p className="lead">
-        모임을 만들고 날짜를 확정하는 분만 가입하면 돼요. 초대받아 날짜만 고르는
-        분은 가입하지 않아도 돼요.
+        {fromCreate
+          ? "모임을 만들려면 로그인이 필요해요. 처음이라면 회원가입을 눌러 주세요."
+          : "모임을 만들고 날짜를 확정하는 분만 가입하면 돼요. 초대받아 날짜만 고르는 분은 가입하지 않아도 돼요."}
       </p>
 
       {!ready ? (
@@ -47,7 +60,7 @@ export default function LoginPage() {
         <div className="stack-gap">
           <AccountForm
             initialMode={join ? "signup" : "login"}
-            onDone={() => router.replace("/host")}
+            onDone={() => router.replace(fromCreate ? "/" : "/host")}
           />
         </div>
       )}

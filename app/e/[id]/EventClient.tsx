@@ -64,6 +64,10 @@ const BLOCK_TEXT: Record<BlockReason, string> = {
 /** 달력 칸 아래 글씨는 세 글자 안쪽으로 짧게 쓴다 (칸이 좁아서 길면 옆 칸과 붙는다) */
 const BLOCK_SHORT = "불가";
 
+/** 이 화면에서 히스토리에 쌓은 칸 수 (다른 화면에서 막 들어왔으면 0) */
+const histDepth = () =>
+  (window.history.state as { mpDepth?: number } | null)?.mpDepth ?? 0;
+
 const cleanName = (value: string) => value.replace(/\s+/g, " ").trim();
 
 type Draft = { date: string; slot: Slot; station: string; searching: boolean };
@@ -102,12 +106,72 @@ export default function EventClient() {
     toastTimer.current = setTimeout(() => setToast(""), 2400);
   }, []);
 
-  const go = useCallback((next: View) => {
+  // ---------- 화면 전환과 뒤로 가기 ----------
+  // 단계마다 브라우저 히스토리에 한 칸씩 쌓아서, 폰의 뒤로 가기(버튼·쓸어넘기기)가
+  // 사이트 밖으로 나가지 않고 바로 앞 단계로 돌아가게 한다.
+  const viewRef = useRef<View>("loading");
+  const pending = useRef<View | null>(null); // 쌓은 칸을 걷어낸 뒤 보여 줄 화면
+
+  const show = useCallback((next: View) => {
+    viewRef.current = next;
     setView(next);
     setFormError("");
     setConfirming("");
     window.scrollTo({ top: 0 });
   }, []);
+
+  /** 다음 화면으로 (뒤로 가면 지금 화면으로 돌아온다) */
+  const go = useCallback(
+    (next: View) => {
+      window.history.pushState(
+        { mpView: next, mpPrev: viewRef.current, mpDepth: histDepth() + 1 },
+        "",
+      );
+      show(next);
+    },
+    [show],
+  );
+
+  /** 쌓은 칸을 모두 걷어내고 이 화면을 바닥으로 삼는다 (저장한 뒤의 결과 화면) */
+  const settle = useCallback(
+    (next: View) => {
+      const stacked = histDepth();
+      if (stacked > 0) {
+        pending.current = next;
+        window.history.go(-stacked);
+        return;
+      }
+      window.history.replaceState({ mpView: next, mpDepth: 0 }, "");
+      show(next);
+    },
+    [show],
+  );
+
+  /** 바로 앞 화면이 target이면 히스토리를 한 칸 되돌리고, 아니면 새로 연다 */
+  const goBackTo = useCallback(
+    (target: View) => {
+      const state = window.history.state as { mpPrev?: View } | null;
+      if (histDepth() > 0 && state?.mpPrev === target) window.history.back();
+      else go(target);
+    },
+    [go],
+  );
+
+  useEffect(() => {
+    const onPop = (event: PopStateEvent) => {
+      const state = event.state as { mpView?: View } | null;
+      if (pending.current) {
+        const next = pending.current;
+        pending.current = null;
+        window.history.replaceState({ mpView: next, mpDepth: 0 }, "");
+        show(next);
+        return;
+      }
+      if (state?.mpView) show(state.mpView);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [show]);
 
   const apply = useCallback((result: FetchResult) => {
     if (result.ok) {
@@ -172,18 +236,18 @@ export default function EventClient() {
         setStation(mine.station);
         setUnavailable(new Set(mine.unavailable));
         setSeenBlocked(readSeenBlocked(event.id) ?? []);
-        setView("result");
+        settle("result");
       } else {
         // 다른 모임에서 골랐던 출발역은 다시 묻지 않는다
         setStation(readStation());
         // 이미 확정된 모임은 결과(확정 내용)부터 보여 준다
-        setView(event.confirmed ? "result" : "name");
+        settle(event.confirmed ? "result" : "name");
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [id, apply]);
+  }, [id, apply, settle]);
 
   // 다른 사람이 응답하면 반영되도록, 화면을 보고 있는 동안 주기적으로 새로 고친다
   useEffect(() => {
@@ -449,7 +513,7 @@ export default function EventClient() {
       markBlockedSeen(); // 방금 달력에서 빠진 칸을 보고 답했으므로 따로 알리지 않는다
       await load();
       setPicked(null);
-      go("result");
+      settle("result");
       showToast("저장했어요");
     } catch {
       setFormError(
@@ -475,7 +539,7 @@ export default function EventClient() {
       }
       if (target === trimmedName) setUnavailable(new Set());
       await load();
-      go("result");
+      settle("result");
       showToast(`${target}님 응답을 지웠어요`);
     } catch {
       showToast("연결이 끊겼어요. 다시 시도해 주세요.");
@@ -602,7 +666,7 @@ export default function EventClient() {
   if (view !== "result") {
     const stepIndex = STEPS.indexOf(view);
     const back = () =>
-      stepIndex === 0 ? go("result") : go(STEPS[stepIndex - 1]);
+      goBackTo(stepIndex === 0 ? "result" : STEPS[stepIndex - 1]);
     const noCount = openKeys.filter((key) => unavailable.has(key)).length;
     const okCount = openKeys.length - noCount;
     const hasBlocked = Object.keys(blocked).length > 0;
@@ -937,9 +1001,11 @@ export default function EventClient() {
 
   return (
     <main className={`page with-cta${picked ? " mid-cta" : ""}`}>
-      <p className="brand">
-        <Link href="/">모임픽</Link>
-      </p>
+      <div className="step-top">
+        <Link className="back" href="/">
+          모임 찾기
+        </Link>
+      </div>
 
       <header className="event-head">
         <h1 className="headline">{event.title}</h1>

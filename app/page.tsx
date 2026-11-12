@@ -17,7 +17,6 @@ import {
   WEEKDAY_LABELS,
 } from "@/lib/dates";
 import {
-  ensureHostToken,
   parseRecent,
   readAccountId,
   readHostToken,
@@ -80,6 +79,14 @@ export default function HomePage() {
   );
 
   // 입력이 잠깐 멈추면 이름으로 모임을 찾는다
+  // 뒤로 가기(폰 버튼·쓸어넘기기)로 만들기 화면을 닫는다
+  useEffect(() => {
+    const onPop = (event: PopStateEvent) =>
+      setCreating(Boolean((event.state as { mpCreate?: boolean })?.mpCreate));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
   // 로그인했으면 내가 만든 모임을 첫 화면에 보여 준다
   useEffect(() => {
     if (!account) return;
@@ -128,7 +135,11 @@ export default function HomePage() {
   }
 
   function openCreate(prefill: string) {
+    // 모임은 로그인한 사람만 만든다
+    if (!account) return router.push("/login?from=create");
     if (prefill && !title) setTitle(prefill.slice(0, LIMITS.titleMax));
+    // 폰의 뒤로 가기로 이 화면을 닫을 수 있게 히스토리에 한 칸 쌓는다
+    window.history.pushState({ mpCreate: true }, "");
     setCreating(true);
     window.scrollTo({ top: 0 });
   }
@@ -147,7 +158,7 @@ export default function HomePage() {
         headers: {
           "Content-Type": "application/json",
           // 내가 만든 모임들을 한 사람(모임장)의 것으로 묶는다
-          "x-host-token": ensureHostToken(),
+          "x-host-token": readHostToken(),
         },
         body: JSON.stringify({
           title,
@@ -160,6 +171,10 @@ export default function HomePage() {
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        router.push("/login?from=create");
+        return;
+      }
       if (!res.ok) {
         setError(data.error ?? "모임을 만들지 못했어요. 다시 시도해 주세요.");
         setBusy(false);
@@ -167,7 +182,13 @@ export default function HomePage() {
       }
       rememberEvent({ id: data.event.id, title: data.event.title });
       if (data.adminToken) rememberAdminToken(data.event.id, data.adminToken);
-      router.push(`/e/${data.event.id}`);
+      // 만들기 화면 자리를 모임 화면으로 바꿔서, 뒤로 가면 첫 화면이 나오게 한다
+      // (이 화면은 뒤에 그대로 남아 있으므로 만들기 폼도 비워 둔다)
+      setCreating(false);
+      setTitle("");
+      setMemo("");
+      setBusy(false);
+      router.replace(`/e/${data.event.id}`);
     } catch {
       setError("연결이 끊겼어요. 인터넷 상태를 확인하고 다시 시도해 주세요.");
       setBusy(false);
@@ -182,7 +203,7 @@ export default function HomePage() {
           <button
             type="button"
             className="back"
-            onClick={() => setCreating(false)}
+            onClick={() => window.history.back()}
           >
             모임 찾기
           </button>
@@ -457,7 +478,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {hasHost && (
+      {(account || hasHost) && (
         <section className="section">
           <ul className="card list">
             <li>
@@ -467,7 +488,7 @@ export default function HomePage() {
                   <span className="row-sub">
                     {account
                       ? "내가 안 되는 시간, 확정한 모임"
-                      : "로그인하면 다른 기기에서도 이어서 쓸 수 있어요"}
+                      : "로그인하면 이 기기에서 만든 모임을 이어서 관리해요"}
                   </span>
                 </span>
                 <span className="row-chevron" aria-hidden="true" />
@@ -479,7 +500,7 @@ export default function HomePage() {
 
       {!account && (
         <p className="host-link">
-          모임을 만들었거나 만들 예정이라면 <Link href="/login">로그인</Link>
+          모임을 만들려면 <Link href="/login">로그인</Link>
           {" · "}
           <Link href="/login?join=1">회원가입</Link>
         </p>

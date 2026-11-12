@@ -1,4 +1,11 @@
-import { fail, handleError, hostHashOf, json, readBody, tooMany } from "@/lib/api";
+import {
+  fail,
+  handleError,
+  hostHashOf,
+  json,
+  readBody,
+  tooMany,
+} from "@/lib/api";
 import { confirmedOf, eventSlots, parseSlotKey } from "@/lib/slots";
 import { isSiteAdmin } from "@/lib/admin";
 import { getStore } from "@/lib/store";
@@ -38,15 +45,22 @@ export async function GET(request: Request) {
 // 모임장 본인의 "안 되는 시간" 저장
 export async function PUT(request: Request) {
   const body = await readBody(request);
-  if (!body || !Array.isArray(body.blocks)) return fail("요청 형식이 올바르지 않아요.");
+  if (!body || !Array.isArray(body.blocks))
+    return fail("요청 형식이 올바르지 않아요.");
   const blocks = [
-    ...new Set(body.blocks.filter((k): k is string => typeof k === "string" && parseSlotKey(k) !== null)),
+    ...new Set(
+      body.blocks.filter(
+        (k): k is string => typeof k === "string" && parseSlotKey(k) !== null,
+      ),
+    ),
   ].sort();
   if (blocks.length > BLOCKS_MAX) return fail("안 되는 시간이 너무 많아요.");
   try {
     const store = getStore();
     const hostHash = await hostHashOf(request, store);
     if (!hostHash) return fail("모임장 정보가 없어요.", 401);
+    if (!(await store.getHostAccount(hostHash)))
+      return fail("일정을 저장하려면 먼저 로그인해 주세요.", 401);
     if (await tooMany(request, "host", 120, store.hit)) {
       return fail("요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요.", 429);
     }

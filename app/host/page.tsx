@@ -10,7 +10,6 @@ import AccountForm from "@/app/components/AccountForm";
 import DayEditor from "@/app/components/DayEditor";
 import { addDays, localToday } from "@/lib/dates";
 import {
-  ensureHostToken,
   forgetLogin,
   readHostToken,
   rememberHostToken,
@@ -49,9 +48,6 @@ export default function HostPage() {
   const [events, setEvents] = useState<HostEvent[]>([]);
   /** 로그인한 계정 아이디 (계정 없이 쓰는 중이면 빈 문자열) */
   const [account, setAccount] = useState("");
-  const [showAccount, setShowAccount] = useState<false | "login" | "signup">(
-    false,
-  );
   /** 사이트 관리자 계정이면 모든 모임을 본다 */
   const [siteAdmin, setSiteAdmin] = useState(false);
   const [allEvents, setAllEvents] = useState<AdminEvent[]>([]);
@@ -120,12 +116,6 @@ export default function HostPage() {
     [today],
   );
 
-  function start() {
-    const created = ensureHostToken();
-    setToken(created);
-    void load(created);
-  }
-
   function toggle(key: string) {
     setBlocks((prev) => {
       const next = new Set(prev);
@@ -183,7 +173,6 @@ export default function HostPage() {
     const current = readHostToken();
     setToken(current);
     setAccount(accountId);
-    setShowAccount(false);
     setDirty(false);
     setEditDate(null);
     void load(current);
@@ -280,18 +269,25 @@ export default function HostPage() {
     (key) => key.slice(0, 10) >= today,
   ).length;
 
+  /** 로그인해야 쓸 수 있다: 토큰이 없거나, 계정 없이 쓰던 기기 */
+  const needLogin = token === "" || (loaded && !account);
+
   return (
-    <main className={`page with-cta${editDate ? " tall-cta" : ""}`}>
+    <main
+      className={`page${needLogin ? "" : ` with-cta${editDate ? " tall-cta" : ""}`}`}
+    >
       <div className="step-top">
         <Link className="back" href="/">
           모임 찾기
         </Link>
       </div>
 
-      <h1 className="question">{token === "" ? "로그인" : "내 일정과 모임"}</h1>
+      <h1 className="question">{needLogin ? "로그인" : "내 일정과 모임"}</h1>
       <p className="lead">
-        {token === ""
-          ? "이름과 숫자 4자리로 로그인하면 어느 기기에서든 같은 일정과 모임을 쓸 수 있어요."
+        {needLogin
+          ? token
+            ? "이 기기에서 만든 모임과 일정은 로그인하거나 회원가입하면 그대로 계정으로 옮겨져요."
+            : "로그인하면 어느 기기에서든 같은 일정과 모임을 쓸 수 있어요."
           : "내가 안 되는 시간을 눌러 두세요. 내가 만든 모든 모임에서 그 시간은 아무도 고를 수 없게 돼요."}
       </p>
 
@@ -300,9 +296,6 @@ export default function HostPage() {
       ) : token === "" ? (
         <div className="stack-gap">
           <AccountForm initialMode="login" onDone={afterLogin} />
-          <button type="button" className="text-btn center" onClick={start}>
-            계정 없이 이 기기에서만 쓰기
-          </button>
         </div>
       ) : error ? (
         <div className="card empty">
@@ -310,47 +303,21 @@ export default function HostPage() {
         </div>
       ) : !loaded ? (
         <p className="status">불러오는 중…</p>
+      ) : !account ? (
+        <div className="stack-gap">
+          <AccountForm initialMode="login" onDone={afterLogin} />
+        </div>
       ) : (
         <>
-          {account ? (
-            <div className="account-bar">
-              <span>
-                <strong>{account}</strong> 계정으로 로그인했어요
-                {siteAdmin && <span className="me">관리자</span>}
-              </span>
-              <button type="button" className="text-btn" onClick={logout}>
-                로그아웃
-              </button>
-            </div>
-          ) : showAccount ? (
-            <div className="stack-gap">
-              <AccountForm initialMode={showAccount} onDone={afterLogin} />
-            </div>
-          ) : (
-            <div className="card notice-card">
-              <p className="notice-title">로그인하지 않은 상태예요</p>
-              <p className="row-sub">
-                지금은 이 기기에서만 쓸 수 있어요. 로그인하면 폰과 PC 어디서든
-                같은 일정과 모임을 써요.
-              </p>
-              <div className="btn-row">
-                <button
-                  type="button"
-                  className="btn primary"
-                  onClick={() => setShowAccount("login")}
-                >
-                  로그인
-                </button>
-                <button
-                  type="button"
-                  className="btn soft"
-                  onClick={() => setShowAccount("signup")}
-                >
-                  회원가입
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="account-bar">
+            <span>
+              <strong>{account}</strong> 계정으로 로그인했어요
+              {siteAdmin && <span className="me">관리자</span>}
+            </span>
+            <button type="button" className="text-btn" onClick={logout}>
+              로그아웃
+            </button>
+          </div>
 
           {fixed.length > 0 && (
             <section className="section">

@@ -71,7 +71,9 @@ export async function PUT(request: Request, ctx: Ctx) {
 
     const current = await store.getResponseMeta(id, name);
     const deviceToken = request.headers.get("x-device-token") ?? "";
-    const deviceHash = /^[0-9a-f]{20,64}$/.test(deviceToken) ? await sha256(deviceToken) : "";
+    const deviceHash = /^[0-9a-f]{20,64}$/.test(deviceToken)
+      ? await sha256(deviceToken)
+      : "";
     let meta = current ?? { editHash: "", deviceHash };
     let editToken: string | undefined;
 
@@ -88,12 +90,18 @@ export async function PUT(request: Request, ctx: Ctx) {
         }
       }
       if ((await store.countResponses(id)) >= LIMITS.participantsMax) {
-        return fail(`한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`, 409);
+        return fail(
+          `한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`,
+          409,
+        );
       }
       // 새 응답: 이 기기만 아는 수정 토큰을 발급한다
       editToken = newAdminToken();
       // 모임장이 대신 입력한 응답은 모임장 기기에 묶지 않는다
-      meta = { editHash: await sha256(editToken), deviceHash: manage ? "" : deviceHash };
+      meta = {
+        editHash: await sha256(editToken),
+        deviceHash: manage ? "" : deviceHash,
+      };
     } else if (!(await mayChange(request, event, current.editHash, store))) {
       return fail(
         "이미 같은 이름으로 응답한 사람이 있어요. 다른 사람이라면 이름을 조금 다르게 적어 주세요. 본인이라면 응답했던 기기에서 고칠 수 있어요.",

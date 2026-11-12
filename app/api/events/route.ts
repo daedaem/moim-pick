@@ -1,8 +1,8 @@
 import {
+  accountOf,
   cleanLine,
   fail,
   handleError,
-  hostHashOf,
   json,
   newAdminToken,
   newEventId,
@@ -64,6 +64,9 @@ export async function POST(request: Request) {
 
   try {
     const store = getStore();
+    // 모임은 로그인한 사람만 만들 수 있다 (누가 만든 모임인지 항상 남는다)
+    const owner = await accountOf(request, store);
+    if (!owner) return fail("모임을 만들려면 먼저 로그인해 주세요.", 401);
     if (await tooMany(request, "create", 20, store.hit)) {
       return fail(
         "모임을 너무 많이 만들었어요. 한 시간 뒤에 다시 시도해 주세요.",
@@ -72,7 +75,7 @@ export async function POST(request: Request) {
     }
     // 관리용 토큰은 만든 사람에게 이번 한 번만 알려 주고, 서버에는 해시만 남긴다
     const adminToken = newAdminToken();
-    const hostHash = await hostHashOf(request, store);
+    const hostHash = owner.hostHash;
     const event: MoimEvent = {
       id: newEventId(),
       title,
@@ -82,11 +85,11 @@ export async function POST(request: Request) {
       createdAt: Date.now(),
       adminHash: await sha256(adminToken),
       searchable: body.searchable !== false,
-      ...(hostHash ? { hostHash } : {}),
+      hostHash,
     };
     await store.createEvent(event);
     if (event.searchable) await store.setIndexed(event, true);
-    if (hostHash) await store.linkHostEvent(hostHash, event.id, true);
+    await store.linkHostEvent(hostHash, event.id, true);
     return json({ event: publicEvent(event), adminToken }, 201);
   } catch (error) {
     return handleError(error);

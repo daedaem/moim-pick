@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import SlotList from "@/app/components/SlotList";
+import Calendar, {
+  type DayCell,
+  type HalfTone,
+} from "@/app/components/Calendar";
+import DayEditor from "@/app/components/DayEditor";
 import { addDays, localToday } from "@/lib/dates";
 import {
   ensureHostToken,
@@ -10,7 +14,7 @@ import {
   rememberHostToken,
   takeHashToken,
 } from "@/lib/recent";
-import { formatSlot, SLOT_ORDER } from "@/lib/slots";
+import { formatSlot, SLOT_LABELS, SLOT_ORDER, slotKey } from "@/lib/slots";
 import { stationLabel } from "@/lib/stations";
 import type { Slot } from "@/lib/types";
 
@@ -32,6 +36,7 @@ export default function HostPage() {
   const [events, setEvents] = useState<HostEvent[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [editDate, setEditDate] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
@@ -97,6 +102,22 @@ export default function HostPage() {
     setDirty(true);
   }
 
+  /** 날짜를 누르면 그날 전체를 한 번에 바꾼다 */
+  function toggleDay(date: string) {
+    const keys = SLOT_ORDER.map((slot) => slotKey(date, slot));
+    setBlocks((prev) => {
+      const next = new Set(prev);
+      const allOff = keys.every((key) => next.has(key));
+      for (const key of keys) {
+        if (allOff) next.delete(key);
+        else next.add(key);
+      }
+      return next;
+    });
+    setEditDate(date);
+    setDirty(true);
+  }
+
   async function save() {
     if (saving || !token) return;
     setSaving(true);
@@ -134,12 +155,47 @@ export default function HostPage() {
   }
 
   const fixed = events.filter((e) => e.confirmed);
+
+  // 달력의 날짜별 표시: 위 반쪽이 점심, 아래 반쪽이 저녁
+  const fixedByDate = new Map(fixed.map((e) => [e.confirmed!.date, e]));
+  const cells = new Map<string, DayCell>();
+  for (const date of dates) {
+    const fixedEvent = fixedByDate.get(date);
+    if (fixedEvent) {
+      const halves: HalfTone[] = SLOT_ORDER.map((slot) =>
+        fixedEvent.confirmed!.slot === slot ? "confirmed" : "locked",
+      );
+      cells.set(date, {
+        halves,
+        sub: "모임 확정",
+        subTone: "ink",
+        label: `${fixedEvent.title} 확정`,
+        disabled: true,
+      });
+      continue;
+    }
+    const off = SLOT_ORDER.filter((slot) => blocks.has(slotKey(date, slot)));
+    const halves: HalfTone[] = SLOT_ORDER.map((slot) =>
+      blocks.has(slotKey(date, slot)) ? "no" : "ok",
+    );
+    if (off.length === 2)
+      cells.set(date, {
+        halves,
+        sub: "안 돼요",
+        subTone: "red",
+        label: "하루 종일 안 됨",
+      });
+    else if (off.length === 1) {
+      const sub = `${SLOT_LABELS[off[0]]} 안 됨`;
+      cells.set(date, { halves, sub, subTone: "red", label: sub });
+    } else cells.set(date, { halves, sub: "", label: "가능" });
+  }
   const blockedCount = [...blocks].filter(
     (key) => key.slice(0, 10) >= today,
   ).length;
 
   return (
-    <main className="page with-cta">
+    <main className={`page with-cta${editDate ? " tall-cta" : ""}`}>
       <div className="step-top">
         <Link className="back" href="/">
           모임 찾기
@@ -202,11 +258,19 @@ export default function HostPage() {
           <section className="section">
             <h2 className="section-title">안 되는 시간</h2>
             <div className="card">
-              <SlotList
+              <p className="half-legend">
+                <span className="mini-split" aria-hidden="true">
+                  <i />
+                  <i />
+                </span>
+                원의 위쪽은 점심, 아래쪽은 저녁이에요. 날짜를 누르면 하루 전체가
+                바뀌어요.
+              </p>
+              <Calendar
                 dates={dates}
-                slots={SLOT_ORDER}
-                off={blocks}
-                onToggle={toggle}
+                cells={cells}
+                selected={editDate}
+                onSelect={toggleDay}
               />
             </div>
           </section>
@@ -249,6 +313,14 @@ export default function HostPage() {
 
           <div className="cta-bar">
             <div className="cta-inner">
+              {editDate && !fixedByDate.has(editDate) && (
+                <DayEditor
+                  date={editDate}
+                  slots={SLOT_ORDER}
+                  off={blocks}
+                  onToggle={toggle}
+                />
+              )}
               <p className="cta-note" aria-live="polite">
                 안 되는 시간 <strong>{blockedCount}</strong>개
                 {dirty && ", 아직 저장 전이에요"}

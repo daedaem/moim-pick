@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Calendar, { type ResultCell } from "@/app/components/Calendar";
-import SlotList from "@/app/components/SlotList";
+import Calendar, {
+  type DayCell,
+  type HalfTone,
+} from "@/app/components/Calendar";
+import DayEditor from "@/app/components/DayEditor";
 import StationPicker from "@/app/components/StationPicker";
 import { formatKorean, formatShort } from "@/lib/dates";
 import {
@@ -82,6 +85,8 @@ export default function EventClient() {
   const [confirming, setConfirming] = useState(""); // "event" 또는 지우려는 사람 이름
   const [draft, setDraft] = useState<Draft | null>(null); // 확정하려고 고르는 중인 날짜·시간대·역
   const [seenBlocked, setSeenBlocked] = useState<string[] | null>(null);
+  /** 입력 달력에서 방금 누른 날 (점심·저녁을 따로 고칠 수 있게 아래에 띄운다) */
+  const [editDate, setEditDate] = useState<string | null>(null);
   const restored = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -225,48 +230,65 @@ export default function EventClient() {
   const total = responses.length;
   const confirmed = event ? confirmedOf(event) : null;
 
-  /** 결과 달력의 날짜별 표시 */
+  /** 결과 달력의 날짜별 표시. 점심·저녁을 따로 받는 모임은 위 반쪽이 점심, 아래 반쪽이 저녁 */
   const cells = useMemo(() => {
-    const map = new Map<string, ResultCell>();
+    const map = new Map<string, DayCell>();
     for (const date of dates) {
       const keys = slots.map((slot) => ({ slot, key: slotKey(date, slot) }));
       const open = keys.filter((k) => !blocked[k.key]);
+      const isPerfect = (key: string) =>
+        total > 0 && (missingByKey.get(key)?.length ?? 0) === 0;
+      const halves: HalfTone[] = keys.map((k) =>
+        confirmed?.date === date && confirmed.slot === k.slot
+          ? "confirmed"
+          : blocked[k.key]
+            ? "locked"
+            : isPerfect(k.key)
+              ? "perfect"
+              : "plain",
+      );
+      const perfect = open.filter((k) => isPerfect(k.key));
+
       if (confirmed?.date === date) {
-        map.set(date, { tone: "confirmed", sub: "확정" });
+        map.set(date, {
+          halves,
+          sub: "확정",
+          subTone: "ink",
+          label: "확정된 날",
+        });
       } else if (open.length === 0) {
         const fixed = keys.some((k) => blocked[k.key] === "fixed");
-        map.set(date, {
-          tone: "blocked",
-          sub: BLOCK_TEXT[fixed ? "fixed" : "busy"],
-        });
+        const sub = BLOCK_TEXT[fixed ? "fixed" : "busy"];
+        map.set(date, { halves, sub, label: `${sub}, 고를 수 없음` });
       } else if (total === 0) {
-        map.set(date, { tone: "plain", sub: "" });
+        map.set(date, { halves, sub: "", label: "" });
+      } else if (perfect.length > 0) {
+        const sub =
+          perfect.length === keys.length
+            ? "모두 가능"
+            : twoSlots
+              ? `${SLOT_LABELS[perfect[0].slot]} 가능`
+              : "모두 가능";
+        map.set(date, { halves, sub, subTone: "blue", label: sub });
       } else {
-        const perfect = open.filter(
-          (k) => (missingByKey.get(k.key)?.length ?? 0) === 0,
+        const least = Math.min(
+          ...open.map((k) => missingByKey.get(k.key)?.length ?? 0),
         );
-        if (perfect.length > 0) {
-          const sub =
-            !twoSlots || perfect.length === 2
-              ? "모두 가능"
-              : `${SLOT_LABELS[perfect[0].slot]} 가능`;
-          map.set(date, { tone: "perfect", sub });
-        } else {
-          const least = Math.min(
-            ...open.map((k) => missingByKey.get(k.key)?.length ?? 0),
-          );
-          map.set(date, { tone: "plain", sub: `${least}명 불가` });
-        }
+        map.set(date, {
+          halves,
+          sub: `${least}명 불가`,
+          label: `${least}명 불가`,
+        });
       }
     }
     return map;
   }, [dates, slots, twoSlots, blocked, confirmed, total, missingByKey]);
 
-  const perfectDays = [...cells.values()].filter(
-    (c) => c.tone === "perfect",
+  const perfectDays = [...cells.values()].filter((c) =>
+    c.halves.includes("perfect"),
   ).length;
-  const blockedDays = [...cells.values()].filter(
-    (c) => c.tone === "blocked",
+  const blockedDays = [...cells.values()].filter((c) =>
+    c.halves.includes("locked"),
   ).length;
   const withStation = responses.filter((r) => r.station).length;
 
@@ -299,6 +321,24 @@ export default function EventClient() {
       else next.add(key);
       return next;
     });
+    setFormError("");
+  }
+
+  /** 날짜를 누르면 그날 전체를 한 번에 바꾼다: 하나라도 되면 전부 안 됨으로, 전부 안 되면 전부 됨으로 */
+  function toggleDay(date: string) {
+    const keys = slots
+      .map((slot) => slotKey(date, slot))
+      .filter((key) => !blocked[key]);
+    setUnavailable((prev) => {
+      const next = new Set(prev);
+      const allOff = keys.every((key) => next.has(key));
+      for (const key of keys) {
+        if (allOff) next.delete(key);
+        else next.add(key);
+      }
+      return next;
+    });
+    setEditDate(date);
     setFormError("");
   }
 
@@ -537,22 +577,51 @@ export default function EventClient() {
     const okCount = openKeys.length - noCount;
     const hasBlocked = Object.keys(blocked).length > 0;
 
-    // 한 시간대만 받는 모임은 달력으로, 날짜 단위로 다룬다
-    const onlySlot = slots[0];
-    const offDates = new Set(
-      dates.filter((date) => unavailable.has(slotKey(date, onlySlot))),
-    );
-    const blockedDates = new Map(
-      dates
-        .filter((date) => blocked[slotKey(date, onlySlot)])
-        .map((date) => [date, BLOCK_TEXT[blocked[slotKey(date, onlySlot)]]]),
-    );
     const blockedKeys = new Map(
       Object.entries(blocked).map(([key, reason]) => [key, BLOCK_TEXT[reason]]),
     );
+    // 입력 달력의 날짜별 표시
+    const checkCells = new Map<string, DayCell>();
+    for (const date of dates) {
+      const keys = slots.map((slot) => ({ slot, key: slotKey(date, slot) }));
+      const open = keys.filter((k) => !blocked[k.key]);
+      const ok = open.filter((k) => !unavailable.has(k.key));
+      const halves: HalfTone[] = keys.map((k) =>
+        blocked[k.key] ? "locked" : unavailable.has(k.key) ? "no" : "ok",
+      );
+      if (open.length === 0) {
+        const fixed = keys.some((k) => blocked[k.key] === "fixed");
+        const sub = BLOCK_TEXT[fixed ? "fixed" : "busy"];
+        checkCells.set(date, {
+          halves,
+          sub,
+          label: `${sub}, 고를 수 없음`,
+          disabled: true,
+        });
+      } else if (ok.length === 0) {
+        checkCells.set(date, {
+          halves,
+          sub: "안 돼요",
+          subTone: "red",
+          label: "안 되는 날",
+        });
+      } else if (ok.length === keys.length || !twoSlots) {
+        checkCells.set(date, {
+          halves,
+          sub: "가능",
+          subTone: "blue",
+          label: "되는 날",
+        });
+      } else {
+        const sub = `${SLOT_LABELS[ok[0].slot]}만 가능`;
+        checkCells.set(date, { halves, sub, subTone: "blue", label: sub });
+      }
+    }
 
     return (
-      <main className="page with-cta">
+      <main
+        className={`page with-cta${view === "dates" && twoSlots ? " tall-cta" : ""}`}
+      >
         <div className="step-top">
           <button type="button" className="back" onClick={back}>
             {stepIndex === 0 ? "결과 보기" : "이전"}
@@ -649,14 +718,10 @@ export default function EventClient() {
 
         {view === "dates" && (
           <>
-            <h1 className="question">
-              {twoSlots
-                ? "안 되는 시간을 눌러 주세요"
-                : "안 되는 날을 눌러 주세요"}
-            </h1>
+            <h1 className="question">안 되는 날을 눌러 주세요</h1>
             <p className="lead">
               {twoSlots
-                ? "점심과 저녁을 따로 골라요. 다 괜찮으면 그대로 저장하면 돼요."
+                ? "날짜를 누르면 하루 전체가 바뀌고, 아래에서 점심·저녁만 따로 고칠 수 있어요."
                 : `${slotWord} 모임이에요. 다 괜찮으면 그대로 저장하면 돼요.`}
             </p>
             {hasBlocked && (
@@ -681,23 +746,15 @@ export default function EventClient() {
               </button>
             </div>
             <div className="card">
-              {twoSlots ? (
-                <SlotList
-                  dates={dates}
-                  slots={slots}
-                  off={unavailable}
-                  blocked={blockedKeys}
-                  onToggle={toggle}
-                />
-              ) : (
-                <Calendar
-                  mode="check"
-                  dates={dates}
-                  off={offDates}
-                  blocked={blockedDates}
-                  onToggle={(date) => toggle(slotKey(date, onlySlot))}
-                />
-              )}
+              {twoSlots && <HalfLegend />}
+              <Calendar
+                dates={dates}
+                cells={checkCells}
+                selected={twoSlots ? editDate : undefined}
+                onSelect={(date) =>
+                  twoSlots ? toggleDay(date) : toggle(slotKey(date, slots[0]))
+                }
+              />
             </div>
             {existing &&
               canEdit(existing.name) &&
@@ -737,6 +794,15 @@ export default function EventClient() {
               <p className="cta-error" role="alert">
                 {formError}
               </p>
+            )}
+            {view === "dates" && twoSlots && editDate && (
+              <DayEditor
+                date={editDate}
+                slots={slots}
+                off={unavailable}
+                blocked={blockedKeys}
+                onToggle={toggle}
+              />
             )}
             {view === "dates" && !formError && (
               <p className="cta-note" aria-live="polite">
@@ -899,8 +965,8 @@ export default function EventClient() {
       )}
 
       <div className="card">
+        {twoSlots && <HalfLegend />}
         <Calendar
-          mode="result"
           dates={dates}
           cells={cells}
           selected={focusDate}
@@ -1276,6 +1342,19 @@ export default function EventClient() {
       </div>
       {toastNode}
     </main>
+  );
+}
+
+/** 반으로 나뉜 원 읽는 법 */
+function HalfLegend() {
+  return (
+    <p className="half-legend">
+      <span className="mini-split" aria-hidden="true">
+        <i />
+        <i />
+      </span>
+      원의 위쪽은 점심, 아래쪽은 저녁이에요.
+    </p>
   );
 }
 

@@ -669,47 +669,6 @@ input[type="date"].input {
   font-weight: 500;
 }
 
-.cell.pick .num {
-  background: var(--blue-soft);
-  color: var(--blue);
-}
-
-.cell.pick .sub {
-  color: var(--blue);
-}
-
-.cell.pick.no .num {
-  background: var(--red);
-  color: #fff;
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
-}
-
-.cell.pick.no .sub {
-  color: var(--red);
-}
-
-.cell.show .num {
-  color: var(--sub);
-}
-
-.cell.show.perfect .num {
-  background: var(--blue);
-  color: #fff;
-}
-
-.cell.show.perfect .sub {
-  color: var(--blue);
-}
-
-.cell.show.selected .num {
-  box-shadow: 0 0 0 2.5px var(--ink);
-}
-
-.cell.show.selected:not(.perfect) .num {
-  color: var(--ink);
-}
-
 .legend {
   display: flex;
   align-items: center;
@@ -1167,35 +1126,6 @@ input[type="date"].input {
   color: var(--muted);
 }
 
-.cell.locked .num,
-.cell.show.blocked .num {
-  background: repeating-linear-gradient(
-    135deg,
-    #e9ecef 0 5px,
-    #dfe3e8 5px 10px
-  );
-  color: #9aa2ac;
-}
-
-.cell.locked .sub,
-.cell.show.blocked .sub {
-  color: #9aa2ac;
-}
-
-.cell.show.confirmed .num {
-  background: var(--ink);
-  color: #fff;
-}
-
-.cell.show.confirmed .sub {
-  color: var(--ink);
-  font-weight: 800;
-}
-
-.cell.show.selected.confirmed .num {
-  box-shadow: 0 0 0 2.5px var(--blue);
-}
-
 .legend {
   flex-wrap: wrap;
   gap: 6px 16px;
@@ -1209,59 +1139,6 @@ input[type="date"].input {
 
 .legend-dot.locked {
   background: repeating-linear-gradient(135deg, #e9ecef 0 3px, #cfd5dc 3px 6px);
-}
-
-.slot-list {
-  display: grid;
-  gap: 8px;
-}
-
-.slot-month {
-  margin: 12px 0 8px;
-}
-
-.slot-list > div:first-child .slot-month {
-  margin-top: 0;
-}
-
-.slot-row {
-  display: grid;
-  grid-template-columns: 52px 1fr 1fr;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.slot-date {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  line-height: 1.15;
-}
-
-.slot-date.sun {
-  color: var(--red);
-}
-
-.slot-date.sat {
-  color: var(--blue);
-}
-
-.slot-day {
-  font-size: 18px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.slot-week {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-}
-
-.slot-date.sun .slot-week,
-.slot-date.sat .slot-week {
-  color: inherit;
 }
 
 .slot-btn {
@@ -1371,4 +1248,155 @@ a.back {
 
 .confirm-panel .fineprint {
   margin: 10px 0 0;
+}
+
+/* ---------- 날짜 원: 하나 또는 위(점심)·아래(저녁) 반원 ---------- */
+
+.cell.day {
+  cursor: pointer;
+}
+
+span.cell.day {
+  cursor: default;
+}
+
+.disc {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--card);
+}
+
+.half {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 위 반쪽과 아래 반쪽. 숫자는 반쪽마다 제 색으로 한 번씩 그려져서 경계에서 색이 갈린다 */
+.disc.split .half:first-child {
+  clip-path: inset(0 0 50% 0);
+}
+
+.disc.split .half:last-child {
+  clip-path: inset(50% 0 0 0);
+}
+
+.half .num {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+}
+
+.half.ok {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.half.no {
+  background: var(--red);
+  color: #fff;
+}
+
+.half.locked {
+  background: repeating-linear-gradient(135deg, #e9ecef 0 5px, #dfe3e8 5px 10px);
+  color: #9aa2ac;
+}
+
+.half.perfect {
+  background: var(--blue);
+  color: #fff;
+}
+
+.half.plain {
+  color: var(--sub);
+}
+
+.disc.split .half.plain {
+  background: var(--field);
+}
+
+.half.confirmed {
+  background: var(--ink);
+  color: #fff;
+}
+
+.cell.day.selected .disc {
+  box-shadow: 0 0 0 2.5px var(--ink);
+}
+
+.cell .sub.blue {
+  color: var(--blue);
+}
+
+.cell .sub.red {
+  color: var(--red);
+}
+
+.cell .sub.ink {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.half-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--sub);
+}
+
+.mini-split {
+  flex: none;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.mini-split i:first-child {
+  background: var(--blue);
+}
+
+.mini-split i:last-child {
+  background: var(--red);
+}
+
+.day-editor {
+  margin-bottom: 10px;
+  padding: 12px;
+  background: var(--card);
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgba(23, 25, 28, 0.1);
+}
+
+.day-editor-date {
+  margin: 0 4px 8px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.day-editor-slots {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.page.with-cta.tall-cta {
+  padding-bottom: 260px;
+}
+
+@media (max-width: 359px) {
+  .disc {
+    width: 36px;
+    height: 36px;
+  }
 }

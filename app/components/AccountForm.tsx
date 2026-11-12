@@ -9,7 +9,7 @@ type Props = {
   onDone: (accountId: string, mode: "login" | "signup") => void;
 };
 
-/** 모임장 계정 로그인 / 만들기 (실명 + 숫자 4자리) */
+/** 로그인 / 회원가입 (실명 + 숫자 4자리) */
 export default function AccountForm({ initialMode, onDone }: Props) {
   const [mode, setMode] = useState(initialMode);
   const [id, setId] = useState("");
@@ -76,7 +76,7 @@ export default function AccountForm({ initialMode, onDone }: Props) {
             setError("");
           }}
         >
-          계정 만들기
+          회원가입
         </button>
       </div>
 
@@ -118,13 +118,13 @@ export default function AccountForm({ initialMode, onDone }: Props) {
       )}
 
       <button type="submit" className="btn primary block" disabled={busy}>
-        {busy ? "확인 중…" : mode === "login" ? "로그인" : "계정 만들기"}
+        {busy ? "확인 중…" : mode === "login" ? "로그인" : "회원가입"}
       </button>
 
       <p className="fineprint">
         {mode === "login"
           ? "5번 틀리면 15분 동안 잠겨요."
-          : "이 기기에 적어 둔 모임장 일정과 만든 모임은 그대로 이 계정으로 옮겨져요."}
+          : "이름은 한글 실명으로 적어 주세요. 이 기기에서 만든 모임과 일정은 그대로 계정으로 옮겨져요."}
       </p>
     </form>
   );

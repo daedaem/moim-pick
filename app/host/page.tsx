@@ -49,7 +49,9 @@ export default function HostPage() {
   const [events, setEvents] = useState<HostEvent[]>([]);
   /** 로그인한 계정 아이디 (계정 없이 쓰는 중이면 빈 문자열) */
   const [account, setAccount] = useState("");
-  const [showAccount, setShowAccount] = useState(false);
+  const [showAccount, setShowAccount] = useState<false | "login" | "signup">(
+    false,
+  );
   /** 사이트 관리자 계정이면 모든 모임을 본다 */
   const [siteAdmin, setSiteAdmin] = useState(false);
   const [allEvents, setAllEvents] = useState<AdminEvent[]>([]);
@@ -188,7 +190,7 @@ export default function HostPage() {
     showToast(
       mode === "login"
         ? `${accountId} 계정으로 로그인했어요`
-        : `${accountId} 계정을 만들었어요`,
+        : `${accountId} 님, 가입됐어요`,
     );
   }
 
@@ -286,9 +288,7 @@ export default function HostPage() {
         </Link>
       </div>
 
-      <h1 className="question">
-        {token === "" ? "모임장 로그인" : "모임장 일정"}
-      </h1>
+      <h1 className="question">{token === "" ? "로그인" : "내 일정과 모임"}</h1>
       <p className="lead">
         {token === ""
           ? "이름과 숫자 4자리로 로그인하면 어느 기기에서든 같은 일정과 모임을 쓸 수 있어요."
@@ -324,22 +324,31 @@ export default function HostPage() {
             </div>
           ) : showAccount ? (
             <div className="stack-gap">
-              <AccountForm initialMode="signup" onDone={afterLogin} />
+              <AccountForm initialMode={showAccount} onDone={afterLogin} />
             </div>
           ) : (
             <div className="card notice-card">
-              <p className="notice-title">아직 이 기기에서만 모임장이에요</p>
+              <p className="notice-title">로그인하지 않은 상태예요</p>
               <p className="row-sub">
-                계정을 만들면 폰과 PC 어디서든 같은 이름으로 로그인해서 같은
-                일정과 모임을 쓸 수 있어요.
+                지금은 이 기기에서만 쓸 수 있어요. 로그인하면 폰과 PC 어디서든
+                같은 일정과 모임을 써요.
               </p>
-              <button
-                type="button"
-                className="btn soft block"
-                onClick={() => setShowAccount(true)}
-              >
-                계정 만들기 또는 로그인
-              </button>
+              <div className="btn-row">
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={() => setShowAccount("login")}
+                >
+                  로그인
+                </button>
+                <button
+                  type="button"
+                  className="btn soft"
+                  onClick={() => setShowAccount("signup")}
+                >
+                  회원가입
+                </button>
+              </div>
             </div>
           )}
 

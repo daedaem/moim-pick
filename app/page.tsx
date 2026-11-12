@@ -19,6 +19,7 @@ import {
 import {
   ensureHostToken,
   parseRecent,
+  readAccountId,
   readHostToken,
   readRecentRaw,
   rememberAdminToken,
@@ -67,6 +68,8 @@ export default function HomePage() {
     () => readHostToken() !== "",
     () => false,
   );
+  const account = useSyncExternalStore(subscribeNever, readAccountId, () => "");
+  const [mine, setMine] = useState<{ id: string; title: string }[]>([]);
   const recent = useMemo(() => parseRecent(recentRaw), [recentRaw]);
   const start = startInput ?? (today ? addDays(today, 1) : "");
   const end = endInput ?? (today ? addDays(today, 28) : "");
@@ -77,6 +80,21 @@ export default function HomePage() {
   );
 
   // 입력이 잠깐 멈추면 이름으로 모임을 찾는다
+  // 로그인했으면 내가 만든 모임을 첫 화면에 보여 준다
+  useEffect(() => {
+    if (!account) return;
+    let alive = true;
+    fetch("/api/host", { headers: { "x-host-token": readHostToken() } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => {
+        if (alive && body && Array.isArray(body.events)) setMine(body.events);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [account]);
+
   useEffect(() => {
     if (q.length < 2) return;
     let cancelled = false;
@@ -335,7 +353,18 @@ export default function HomePage() {
   // ---------- 모임 찾기 ----------
   return (
     <main className="page with-cta">
-      <p className="brand">모임픽</p>
+      <div className="topbar">
+        <p className="brand">모임픽</p>
+        {account ? (
+          <Link className="top-link on" href="/host">
+            {account} 님
+          </Link>
+        ) : (
+          <Link className="top-link" href="/login">
+            로그인
+          </Link>
+        )}
+      </div>
 
       <h1 className="headline">
         어떤 모임에
@@ -412,15 +441,33 @@ export default function HomePage() {
         </section>
       )}
 
+      {account && mine.length > 0 && (
+        <section className="section">
+          <h2 className="section-title">내가 만든 모임</h2>
+          <ul className="card list">
+            {mine.map((item) => (
+              <li key={item.id}>
+                <Link className="row" href={`/e/${item.id}`}>
+                  <span className="row-main">{item.title}</span>
+                  <span className="row-chevron" aria-hidden="true" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {hasHost && (
         <section className="section">
           <ul className="card list">
             <li>
               <Link className="row" href="/host">
                 <span className="row-text">
-                  <span className="row-main">모임장 일정 관리</span>
+                  <span className="row-main">내 일정과 모임 관리</span>
                   <span className="row-sub">
-                    내가 안 되는 시간, 내가 만든 모임
+                    {account
+                      ? "내가 안 되는 시간, 확정한 모임"
+                      : "로그인하면 다른 기기에서도 이어서 쓸 수 있어요"}
                   </span>
                 </span>
                 <span className="row-chevron" aria-hidden="true" />
@@ -430,9 +477,11 @@ export default function HomePage() {
         </section>
       )}
 
-      {!hasHost && (
+      {!account && (
         <p className="host-link">
-          모임을 만든 분인가요? <Link href="/host">모임장 로그인</Link>
+          모임을 만들었거나 만들 예정이라면 <Link href="/login">로그인</Link>
+          {" · "}
+          <Link href="/login?join=1">회원가입</Link>
         </p>
       )}
 

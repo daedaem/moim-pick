@@ -49,6 +49,8 @@ export function readName(eventId: string): string {
     return (
       window.localStorage.getItem(`mp:name:${eventId}`) ??
       window.localStorage.getItem("mp:name") ??
+      // 로그인한 계정이 있으면 그 이름을 먼저 채워 둔다
+      window.localStorage.getItem("mp:account") ??
       ""
     );
   } catch {

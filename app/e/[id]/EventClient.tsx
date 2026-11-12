@@ -173,17 +173,25 @@ export default function EventClient() {
     return () => window.removeEventListener("popstate", onPop);
   }, [show]);
 
-  const apply = useCallback((result: FetchResult) => {
-    if (result.ok) {
-      setLoadError("");
-      setData(result.payload);
-    } else {
+  const apply = useCallback(
+    (result: FetchResult) => {
+      if (result.ok) {
+        setLoadError("");
+        setData(result.payload);
+        return;
+      }
+      if (result.gone) {
+        // 지워진 모임: 전에 열어 둔 화면이 남아 있어도 내용을 비우고, 최근 목록에서도 뺀다
+        setData(null);
+        forgetEvent(id);
+      }
       // 이미 화면이 떠 있는데 잠깐 연결이 끊긴 경우에는 기존 내용을 그대로 둔다
       setLoadError((prev) =>
         result.network ? prev || result.error : result.error,
       );
-    }
-  }, []);
+    },
+    [id],
+  );
 
   const load = useCallback(async () => {
     apply(await fetchEvent(id));
@@ -1531,7 +1539,7 @@ function tokenHeaders(eventId: string): Record<string, string> {
 
 type FetchResult =
   | { ok: true; payload: EventPayload }
-  | { ok: false; error: string; network: boolean };
+  | { ok: false; error: string; network: boolean; gone: boolean };
 
 async function fetchEvent(id: string): Promise<FetchResult> {
   try {
@@ -1541,10 +1549,15 @@ async function fetchEvent(id: string): Promise<FetchResult> {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      // 404는 지워졌거나 없는 모임이다
+      const gone = res.status === 404;
       return {
         ok: false,
-        error: body.error ?? "모임을 불러오지 못했어요.",
+        error: gone
+          ? "지워졌거나 없는 모임이에요."
+          : (body.error ?? "모임을 불러오지 못했어요."),
         network: false,
+        gone,
       };
     }
     return { ok: true, payload: body as EventPayload };
@@ -1553,6 +1566,7 @@ async function fetchEvent(id: string): Promise<FetchResult> {
       ok: false,
       error: "연결이 끊겼어요. 인터넷 상태를 확인해 주세요.",
       network: true,
+      gone: false,
     };
   }
 }

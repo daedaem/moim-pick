@@ -10,6 +10,7 @@ import AccountForm from "@/app/components/AccountForm";
 import DayEditor from "@/app/components/DayEditor";
 import { addDays, localToday } from "@/lib/dates";
 import {
+  forgetEvent,
   forgetLogin,
   readHostToken,
   rememberHostToken,
@@ -215,6 +216,7 @@ export default function HostPage() {
         return;
       }
       setRemoving("");
+      forgetEvent(eventId); // 이 기기의 "최근에 연 모임"에서도 뺀다
       await load(token);
       showToast("모임을 지웠어요");
     } catch {

@@ -9,7 +9,7 @@ type Props = {
   onDone: (accountId: string, mode: "login" | "signup") => void;
 };
 
-/** 모임장 계정 로그인 / 만들기 (아이디 + 숫자 4자리) */
+/** 모임장 계정 로그인 / 만들기 (실명 + 숫자 4자리) */
 export default function AccountForm({ initialMode, onDone }: Props) {
   const [mode, setMode] = useState(initialMode);
   const [id, setId] = useState("");
@@ -20,7 +20,8 @@ export default function AccountForm({ initialMode, onDone }: Props) {
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (busy) return;
-    if (id.trim().length < 2) return setError("아이디를 2자 이상 적어 주세요.");
+    if (!/^[가-힣]{2,5}$/.test(id.replace(/\s+/g, "")))
+      return setError("이름은 한글 실명으로 2~5자만 쓸 수 있어요.");
     if (!/^\d{4}$/.test(pin)) return setError("비밀번호는 숫자 4자리예요.");
     setBusy(true);
     setError("");
@@ -80,14 +81,14 @@ export default function AccountForm({ initialMode, onDone }: Props) {
       </div>
 
       <label className="field">
-        <span className="field-label">아이디</span>
+        <span className="field-label">이름 (실명)</span>
         <input
           className="input"
           value={id}
           onChange={(e) => setId(e.target.value)}
-          placeholder="한글, 영문, 숫자 2~20자"
-          maxLength={20}
-          autoComplete="username"
+          placeholder="예: 홍길동"
+          maxLength={8}
+          autoComplete="name"
           autoCapitalize="none"
           spellCheck={false}
         />

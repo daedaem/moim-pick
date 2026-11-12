@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   if (!body) return fail("요청 형식이 올바르지 않아요.");
   const id = normalizeAccountId(body.id);
   const pin = typeof body.pin === "string" ? body.pin : "";
-  if (!id) return fail("아이디는 한글, 영문, 숫자, 밑줄로 2~20자로 정해 주세요.");
+  if (!id) return fail("이름은 한글 실명으로 2~5자만 쓸 수 있어요.");
   if (!PIN_PATTERN.test(pin)) return fail("비밀번호는 숫자 4자리로 정해 주세요.");
 
   try {
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       createdAt: Date.now(),
     };
     if (!(await store.createAccount(account))) {
-      return fail("이미 쓰는 아이디예요. 다른 아이디로 정해 주세요.", 409);
+      return fail("이미 같은 이름으로 만든 계정이 있어요. 본인 계정이라면 로그인해 주세요.", 409);
     }
     await store.setHostAccount(hostHash, id);
     return json({ id, token: await openSession(store, hostHash) }, 201);

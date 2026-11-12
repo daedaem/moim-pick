@@ -10,11 +10,14 @@ export const PIN_PATTERN = /^\d{4}$/;
 export const FAILS_PER_15_MIN = 5;
 export const FAILS_PER_DAY = 20;
 
-/** 아이디 정리: 앞뒤 공백 제거, 소문자. 한글·영문·숫자·밑줄 2~20자만 허용. 맞지 않으면 null */
+/**
+ * 계정 이름 정리. 실명 형태(한글 2~5자)만 받는다. 맞지 않으면 null.
+ * 실제로 본인 이름인지까지 확인하지는 못한다. 영문·숫자·기호가 섞인 별명을 막는 정도다.
+ */
 export function normalizeAccountId(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const id = value.normalize("NFC").trim().toLowerCase();
-  return /^[a-z0-9_가-힣]{2,20}$/.test(id) ? id : null;
+  const id = value.normalize("NFC").replace(/\s+/g, "");
+  return /^[가-힣]{2,5}$/.test(id) ? id : null;
 }
 
 function toHex(bytes: Uint8Array): string {

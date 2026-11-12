@@ -291,7 +291,7 @@ export default function HostPage() {
       </h1>
       <p className="lead">
         {token === ""
-          ? "아이디와 숫자 4자리로 로그인하면 어느 기기에서든 같은 일정과 모임을 쓸 수 있어요."
+          ? "이름과 숫자 4자리로 로그인하면 어느 기기에서든 같은 일정과 모임을 쓸 수 있어요."
           : "내가 안 되는 시간을 눌러 두세요. 내가 만든 모든 모임에서 그 시간은 아무도 고를 수 없게 돼요."}
       </p>
 
@@ -330,7 +330,7 @@ export default function HostPage() {
             <div className="card notice-card">
               <p className="notice-title">아직 이 기기에서만 모임장이에요</p>
               <p className="row-sub">
-                계정을 만들면 폰과 PC 어디서든 같은 아이디로 로그인해서 같은
+                계정을 만들면 폰과 PC 어디서든 같은 이름으로 로그인해서 같은
                 일정과 모임을 쓸 수 있어요.
               </p>
               <button

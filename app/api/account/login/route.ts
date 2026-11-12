@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   if (!body) return fail("요청 형식이 올바르지 않아요.");
   const id = normalizeAccountId(body.id);
   const pin = typeof body.pin === "string" ? body.pin : "";
-  if (!id || !PIN_PATTERN.test(pin)) return fail("아이디와 숫자 4자리를 확인해 주세요.");
+  if (!id || !PIN_PATTERN.test(pin)) return fail("이름(한글 실명)과 숫자 4자리를 확인해 주세요.");
 
   try {
     const store = getStore();
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
       const left = Math.max(0, FAILS_PER_15_MIN - fails);
       return fail(
         left > 0
-          ? `아이디나 숫자가 맞지 않아요. ${left}번 더 틀리면 15분 동안 잠겨요.`
+          ? `이름이나 숫자가 맞지 않아요. ${left}번 더 틀리면 15분 동안 잠겨요.`
           : "여러 번 틀려서 잠시 잠겼어요. 15분 뒤에 다시 시도해 주세요.",
         401,
       );

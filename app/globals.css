@@ -1575,3 +1575,78 @@ span.cell.day {
     font-size: 11px;
   }
 }
+
+/* ---------- 모임장 계정 ---------- */
+
+.account {
+  display: grid;
+  gap: 16px;
+}
+
+.segmented.two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.input.pin {
+  letter-spacing: 0.3em;
+  font-weight: 700;
+}
+
+.input.pin::placeholder {
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.form-error {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--red);
+}
+
+.account .fineprint {
+  margin: 0;
+}
+
+.account-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 6px 8px 6px 18px;
+  background: var(--card);
+  border-radius: 16px;
+  font-size: 15px;
+}
+
+.notice-card {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.notice-title {
+  font-weight: 800;
+}
+
+.text-btn.center {
+  display: block;
+  margin: 4px auto 0;
+}
+
+.host-link {
+  margin-top: 28px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.host-link a {
+  font-weight: 700;
+  color: var(--blue);
+  text-underline-offset: 3px;
+}
+
+.btn.idea {
+  margin-top: 12px;
+}

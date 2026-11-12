@@ -79,25 +79,44 @@ export function publicEvent<
   return rest;
 }
 
-/** 요청에 실린 모임장 토큰의 해시 (없으면 빈 문자열) */
-export async function hostHashOf(request: Request): Promise<string> {
+type SessionSource = {
+  getSessionHost(sessionHash: string): Promise<string | null>;
+  getHostAccount(hostHash: string): Promise<string | null>;
+};
+
+/**
+ * 요청에 실린 모임장 토큰이 가리키는 모임장 해시 (없으면 빈 문자열).
+ * 토큰은 두 가지다: 계정으로 로그인해서 받은 세션 토큰, 또는 계정 없이 브라우저가 만든 토큰.
+ */
+export async function hostHashOf(
+  request: Request,
+  store: SessionSource,
+): Promise<string> {
   const token = request.headers.get("x-host-token") ?? "";
-  return /^[0-9a-f]{32,64}$/.test(token) ? sha256(token) : "";
+  if (!/^[0-9a-f]{32,64}$/.test(token)) return "";
+  const hash = await sha256(token);
+  const fromSession = await store.getSessionHost(hash);
+  if (fromSession) return fromSession;
+  // 계정이 있는 모임장은 로그인 세션으로만 인정한다.
+  // 계정을 만들기 전에 쓰던 브라우저 토큰이나 모임장 링크는 그때부터 통하지 않는다.
+  return (await store.getHostAccount(hash)) ? "" : hash;
 }
 
 /**
  * 이 요청이 모임을 관리할 수 있는지.
- * 모임을 만든 기기(관리 토큰)이거나, 그 모임의 모임장(모임장 토큰)이어야 한다.
+ * 모임을 만든 기기(관리 토큰)이거나, 그 모임의 모임장이어야 한다.
  */
 export async function canManage(
   request: Request,
   event: { adminHash?: string; hostHash?: string },
+  store: SessionSource,
 ): Promise<boolean> {
   const admin = request.headers.get("x-admin-token") ?? "";
   if (admin && event.adminHash && (await sha256(admin)) === event.adminHash)
     return true;
-  const host = await hostHashOf(request);
-  return Boolean(host && event.hostHash && host === event.hostHash);
+  if (!event.hostHash) return false;
+  const host = await hostHashOf(request, store);
+  return Boolean(host && host === event.hostHash);
 }
 
 /**

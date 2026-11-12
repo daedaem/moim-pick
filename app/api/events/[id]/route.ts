@@ -31,7 +31,7 @@ export async function GET(request: Request, ctx: Ctx) {
     const [responses, blocked, manage] = await Promise.all([
       store.listResponses(id),
       blockedFor(event, store),
-      canManage(request, event),
+      canManage(request, event, store),
     ]);
     responses.sort((a, b) => a.updatedAt - b.updatedAt);
     const payload: EventPayload = {
@@ -58,7 +58,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
     const store = getStore();
     const event = await store.getEvent(id);
     if (!event) return fail("모임을 찾을 수 없어요.", 404);
-    if (!(await canManage(request, event))) {
+    if (!(await canManage(request, event, store))) {
       return fail(
         "이 모임을 지울 권한이 없어요. 모임을 만든 기기나 관리 링크로 열어 주세요.",
         403,
@@ -86,7 +86,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     // 모임장 계정에 묶기: 모임을 만든 기기(관리 토큰)에서만 가능
     if (body.claim === true) {
       const admin = request.headers.get("x-admin-token") ?? "";
-      const hostHash = await hostHashOf(request);
+      const hostHash = await hostHashOf(request, store);
       if (
         !admin ||
         !event.adminHash ||
@@ -105,7 +105,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
       return json({ ok: true });
     }
 
-    if (!(await canManage(request, event)))
+    if (!(await canManage(request, event, store)))
       return fail("모임장만 확정할 수 있어요.", 403);
 
     if (body.confirmed === null) {

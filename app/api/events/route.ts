@@ -72,7 +72,7 @@ export async function POST(request: Request) {
     }
     // 관리용 토큰은 만든 사람에게 이번 한 번만 알려 주고, 서버에는 해시만 남긴다
     const adminToken = newAdminToken();
-    const hostHash = await hostHashOf(request);
+    const hostHash = await hostHashOf(request, store);
     const event: MoimEvent = {
       id: newEventId(),
       title,

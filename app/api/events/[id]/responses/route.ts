@@ -32,8 +32,9 @@ async function mayChange(
   request: Request,
   event: MoimEvent,
   editHash: string,
+  store: ReturnType<typeof getStore>,
 ): Promise<boolean> {
-  if (await canManage(request, event)) return true;
+  if (await canManage(request, event, store)) return true;
   const edit = request.headers.get("x-edit-token") ?? "";
   return Boolean(edit && editHash && (await sha256(edit)) === editHash);
 }
@@ -75,7 +76,7 @@ export async function PUT(request: Request, ctx: Ctx) {
     let editToken: string | undefined;
 
     if (current === null) {
-      const manage = await canManage(request, event);
+      const manage = await canManage(request, event, store);
       // 한 기기에서는 한 번만 응답한다 (모임장은 다른 사람 대신 입력할 수 있다)
       if (deviceHash && !manage) {
         const already = await store.findNameByDevice(id, deviceHash);
@@ -93,7 +94,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       editToken = newAdminToken();
       // 모임장이 대신 입력한 응답은 모임장 기기에 묶지 않는다
       meta = { editHash: await sha256(editToken), deviceHash: manage ? "" : deviceHash };
-    } else if (!(await mayChange(request, event, current.editHash))) {
+    } else if (!(await mayChange(request, event, current.editHash, store))) {
       return fail(
         "이미 같은 이름으로 응답한 사람이 있어요. 다른 사람이라면 이름을 조금 다르게 적어 주세요. 본인이라면 응답했던 기기에서 고칠 수 있어요.",
         409,
@@ -127,7 +128,7 @@ export async function DELETE(request: Request, ctx: Ctx) {
     if (!event) return fail("모임을 찾을 수 없어요.", 404);
     const current = await store.getResponseMeta(id, name);
     if (current === null) return json({ ok: true });
-    if (!(await mayChange(request, event, current.editHash))) {
+    if (!(await mayChange(request, event, current.editHash, store))) {
       return fail("이 응답은 응답한 기기나 주최자만 지울 수 있어요.", 403);
     }
     await store.deleteResponse(id, name);

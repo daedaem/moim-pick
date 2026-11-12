@@ -430,6 +430,12 @@ export default function HomePage() {
         </section>
       )}
 
+      {!hasHost && (
+        <p className="host-link">
+          모임을 만든 분인가요? <Link href="/host">모임장 로그인</Link>
+        </p>
+      )}
+
       <div className="cta-bar">
         <div className="cta-inner">
           <button

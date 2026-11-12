@@ -224,3 +224,34 @@ export function deviceToken(): string {
     return "";
   }
 }
+
+// ---------- 모임장 계정 ----------
+
+/** 이 기기에서 로그인한 모임장 아이디 (화면에 보여 주는 용도) */
+export function readAccountId(): string {
+  try {
+    return window.localStorage.getItem("mp:account") ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/** 로그인·가입에 성공했을 때: 세션 토큰과 아이디를 기억한다 */
+export function rememberLogin(token: string, accountId: string) {
+  try {
+    window.localStorage.setItem("mp:host", token);
+    window.localStorage.setItem("mp:account", accountId);
+  } catch {
+    /* 무시 */
+  }
+}
+
+/** 로그아웃: 이 기기에서 모임장 정보를 지운다 */
+export function forgetLogin() {
+  try {
+    window.localStorage.removeItem("mp:host");
+    window.localStorage.removeItem("mp:account");
+  } catch {
+    /* 무시 */
+  }
+}

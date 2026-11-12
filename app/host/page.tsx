@@ -6,10 +6,12 @@ import Calendar, {
   type DayCell,
   type HalfTone,
 } from "@/app/components/Calendar";
+import AccountForm from "@/app/components/AccountForm";
 import DayEditor from "@/app/components/DayEditor";
 import { addDays, localToday } from "@/lib/dates";
 import {
   ensureHostToken,
+  forgetLogin,
   readHostToken,
   rememberHostToken,
   takeHashToken,
@@ -34,6 +36,9 @@ export default function HostPage() {
   const [today, setToday] = useState("");
   const [blocks, setBlocks] = useState<Set<string>>(new Set());
   const [events, setEvents] = useState<HostEvent[]>([]);
+  /** 로그인한 계정 아이디 (계정 없이 쓰는 중이면 빈 문자열) */
+  const [account, setAccount] = useState("");
+  const [showAccount, setShowAccount] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [editDate, setEditDate] = useState<string | null>(null);
@@ -58,6 +63,7 @@ export default function HostPage() {
       if (!res.ok) throw new Error(body.error);
       setBlocks(new Set<string>(body.blocks));
       setEvents(body.events);
+      setAccount(typeof body.account === "string" ? body.account : "");
       setLoaded(true);
       setError("");
     } catch {
@@ -144,14 +150,35 @@ export default function HostPage() {
     }
   }
 
-  async function copyHostLink() {
-    const link = `${window.location.origin}/host#host=${token}`;
-    try {
-      await navigator.clipboard.writeText(link);
-      showToast("모임장 링크를 복사했어요");
-    } catch {
-      showToast(link);
-    }
+  /** 로그인하거나 계정을 만든 뒤: 새 토큰으로 다시 불러온다 */
+  function afterLogin(accountId: string, mode: "login" | "signup") {
+    const current = readHostToken();
+    setToken(current);
+    setAccount(accountId);
+    setShowAccount(false);
+    setDirty(false);
+    setEditDate(null);
+    void load(current);
+    showToast(
+      mode === "login"
+        ? `${accountId} 계정으로 로그인했어요`
+        : `${accountId} 계정을 만들었어요`,
+    );
+  }
+
+  async function logout() {
+    await fetch("/api/account/logout", {
+      method: "POST",
+      headers: { "x-host-token": readHostToken() },
+    }).catch(() => null);
+    forgetLogin();
+    setToken("");
+    setAccount("");
+    setLoaded(false);
+    setBlocks(new Set());
+    setEvents([]);
+    setEditDate(null);
+    showToast("로그아웃했어요");
   }
 
   const fixed = events.filter((e) => e.confirmed);
@@ -207,23 +234,22 @@ export default function HostPage() {
         </Link>
       </div>
 
-      <h1 className="question">모임장 일정</h1>
+      <h1 className="question">
+        {token === "" ? "모임장 로그인" : "모임장 일정"}
+      </h1>
       <p className="lead">
-        내가 안 되는 시간을 눌러 두세요. 내가 만든 모든 모임에서 그 시간은
-        아무도 고를 수 없게 돼요.
+        {token === ""
+          ? "아이디와 숫자 4자리로 로그인하면 어느 기기에서든 같은 일정과 모임을 쓸 수 있어요."
+          : "내가 안 되는 시간을 눌러 두세요. 내가 만든 모든 모임에서 그 시간은 아무도 고를 수 없게 돼요."}
       </p>
 
       {token === null ? (
         <p className="status">불러오는 중…</p>
       ) : token === "" ? (
-        <div className="card stack-gap">
-          <p>아직 이 기기는 모임장으로 등록되지 않았어요.</p>
-          <p className="row-sub">
-            시작하면 이 브라우저에 모임장 열쇠가 저장돼요. 다른 기기에서 쓰던
-            모임장이 있다면 그 기기에서 모임장 링크를 복사해 와서 여세요.
-          </p>
-          <button type="button" className="btn primary block" onClick={start}>
-            모임장으로 시작하기
+        <div className="stack-gap">
+          <AccountForm initialMode="login" onDone={afterLogin} />
+          <button type="button" className="text-btn center" onClick={start}>
+            계정 없이 이 기기에서만 쓰기
           </button>
         </div>
       ) : error ? (
@@ -234,6 +260,36 @@ export default function HostPage() {
         <p className="status">불러오는 중…</p>
       ) : (
         <>
+          {account ? (
+            <div className="account-bar">
+              <span>
+                <strong>{account}</strong> 계정으로 로그인했어요
+              </span>
+              <button type="button" className="text-btn" onClick={logout}>
+                로그아웃
+              </button>
+            </div>
+          ) : showAccount ? (
+            <div className="stack-gap">
+              <AccountForm initialMode="signup" onDone={afterLogin} />
+            </div>
+          ) : (
+            <div className="card notice-card">
+              <p className="notice-title">아직 이 기기에서만 모임장이에요</p>
+              <p className="row-sub">
+                계정을 만들면 폰과 PC 어디서든 같은 아이디로 로그인해서 같은
+                일정과 모임을 쓸 수 있어요.
+              </p>
+              <button
+                type="button"
+                className="btn soft block"
+                onClick={() => setShowAccount(true)}
+              >
+                계정 만들기 또는 로그인
+              </button>
+            </div>
+          )}
+
           {fixed.length > 0 && (
             <section className="section">
               <h2 className="section-title">확정된 모임</h2>
@@ -297,24 +353,6 @@ export default function HostPage() {
               </ul>
             </section>
           )}
-
-          <section className="section">
-            <h2 className="section-title">다른 기기에서도 모임장으로 쓰기</h2>
-            <div className="card manage">
-              <p className="manage-note">
-                모임장 링크를 다른 기기에서 열면 그 기기도 같은 모임장이 돼요.
-                이 링크를 가진 사람은 내 모든 모임을 관리할 수 있으니 나에게만
-                보내세요.
-              </p>
-              <button
-                type="button"
-                className="btn soft block"
-                onClick={copyHostLink}
-              >
-                모임장 링크 복사
-              </button>
-            </div>
-          </section>
 
           <div className="cta-bar">
             <div className="cta-inner">

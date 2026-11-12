@@ -89,6 +89,8 @@ export default function EventClient() {
   const [confirming, setConfirming] = useState(""); // "event" 또는 지우려는 사람 이름
   const [draft, setDraft] = useState<Draft | null>(null); // 확정하려고 고르는 중인 날짜·시간대·역
   const [seenBlocked, setSeenBlocked] = useState<string[] | null>(null);
+  /** 같은 이름이 이미 있을 때 대신 쓸 이름 제안 (예: 김민수2) */
+  const [nameIdea, setNameIdea] = useState("");
   /** 입력 달력에서 방금 누른 날 (점심·저녁을 따로 고칠 수 있게 아래에 띄운다) */
   const [editDate, setEditDate] = useState<string | null>(null);
   const restored = useRef(false);
@@ -387,11 +389,19 @@ export default function EventClient() {
       return;
     }
     if (existing && !canEdit(existing.name)) {
+      // 동명이인: 바로 쓸 수 있는 이름을 하나 제안한다 (김민수2, 김민수3 …)
+      const taken = new Set(responses.map((r) => r.name));
+      const base = trimmedName.slice(0, LIMITS.nameMax - 1);
+      const idea = [2, 3, 4, 5, 6, 7, 8, 9]
+        .map((n) => `${base}${n}`)
+        .find((n) => !taken.has(n));
+      setNameIdea(idea ?? "");
       setFormError(
         "이미 같은 이름으로 응답한 사람이 있어요. 다른 사람이라면 이름을 조금 다르게 적어 주세요.",
       );
       return;
     }
+    setNameIdea("");
     setName(trimmedName);
     if (existing) {
       // 이미 응답한 이름이면 그 응답을 이어서 고친다
@@ -693,6 +703,19 @@ export default function EventClient() {
               <p className="hint">
                 이미 응답한 이름이에요. 계속하면 그 응답을 고쳐요.
               </p>
+            )}
+            {nameIdea && existing && !canEdit(existing.name) && (
+              <button
+                type="button"
+                className="btn soft small idea"
+                onClick={() => {
+                  setName(nameIdea);
+                  setNameIdea("");
+                  setFormError("");
+                }}
+              >
+                &lsquo;{nameIdea}&rsquo; 이름으로 할게요
+              </button>
             )}
           </>
         )}

@@ -1,5 +1,5 @@
 import { Redis } from "@upstash/redis";
-import type { HostRecord, MoimEvent, MoimResponse } from "./types";
+import type { HostAccount, HostRecord, MoimEvent, MoimResponse } from "./types";
 
 /**
  * 저장소 계층.
@@ -61,6 +61,19 @@ interface Store {
   ): Promise<void>;
   /** 모임장이 만든 모임들 */
   listHostEvents(hostHash: string): Promise<MoimEvent[]>;
+  deleteHost(hostHash: string): Promise<void>;
+  /** 지금까지 센 횟수 (hit 으로 센 값을 늘리지 않고 읽기만 한다) */
+  peek(key: string): Promise<number>;
+  getAccount(id: string): Promise<HostAccount | null>;
+  /** 같은 아이디가 이미 있으면 만들지 않고 false */
+  createAccount(account: HostAccount): Promise<boolean>;
+  /** 모임장 해시가 어느 계정의 것인지 */
+  getHostAccount(hostHash: string): Promise<string | null>;
+  setHostAccount(hostHash: string, accountId: string): Promise<void>;
+  /** 로그인 세션: 세션 토큰의 해시 → 모임장 해시 */
+  putSession(sessionHash: string, hostHash: string): Promise<void>;
+  getSessionHost(sessionHash: string): Promise<string | null>;
+  deleteSession(sessionHash: string): Promise<void>;
 }
 
 const eventKey = (id: string) => `mp:event:${id}`;
@@ -68,6 +81,10 @@ const responsesKey = (id: string) => `mp:event:${id}:responses`;
 const hostKey = (hash: string) => `mp:host:${hash}`;
 const hostEventsKey = (hash: string) => `mp:host:${hash}:events`;
 const HOST_TTL_SECONDS = 60 * 60 * 24 * 400;
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 200;
+const accountKey = (id: string) => `mp:account:${id}`;
+const hostAccountKey = (hash: string) => `mp:hostacct:${hash}`;
+const sessionKey = (hash: string) => `mp:session:${hash}`;
 const INDEX_KEY = "mp:index"; // 정렬 집합: 점수 = 만든 시각, 값 = 모임 ID
 
 /**
@@ -113,6 +130,39 @@ function redisStore(redis: Redis): Store {
     async deleteEvent(id) {
       await redis.del(eventKey(id), responsesKey(id));
       await redis.zrem(INDEX_KEY, id);
+    },
+    async deleteHost(hostHash) {
+      await redis.del(hostKey(hostHash), hostEventsKey(hostHash));
+    },
+    async peek(key) {
+      return Number((await redis.get<number>(`mp:rate:${key}`)) ?? 0);
+    },
+    async getAccount(id) {
+      return (await redis.get<HostAccount>(accountKey(id))) ?? null;
+    },
+    async createAccount(account) {
+      return (
+        (await redis.set(accountKey(account.id), account, { nx: true })) ===
+        "OK"
+      );
+    },
+    async getHostAccount(hostHash) {
+      const id = await redis.get<string | number>(hostAccountKey(hostHash));
+      return id === null || id === undefined ? null : String(id);
+    },
+    async setHostAccount(hostHash, accountId) {
+      await redis.set(hostAccountKey(hostHash), accountId);
+    },
+    async putSession(sessionHash, hostHash) {
+      await redis.set(sessionKey(sessionHash), hostHash, {
+        ex: SESSION_TTL_SECONDS,
+      });
+    },
+    async getSessionHost(sessionHash) {
+      return (await redis.get<string>(sessionKey(sessionHash))) ?? null;
+    },
+    async deleteSession(sessionHash) {
+      await redis.del(sessionKey(sessionHash));
     },
     async hit(key, windowSeconds) {
       const count = await redis.incr(`mp:rate:${key}`);
@@ -224,13 +274,23 @@ function memoryStore(): Store {
     __moimIndex?: Set<string>;
     __moimHosts?: Map<string, HostRecord>;
     __moimHostEvents?: Map<string, Set<string>>;
+    __moimAccounts?: Map<string, HostAccount>;
+    __moimHostAccounts?: Map<string, string>;
+    __moimSessions?: Map<string, string>;
+    __moimHits?: Map<string, { count: number; until: number }>;
   };
   const events = (g.__moimEvents ??= new Map());
   const responses = (g.__moimResponses ??= new Map());
   const index = (g.__moimIndex ??= new Set<string>());
   const hosts = (g.__moimHosts ??= new Map<string, HostRecord>());
   const hostEvents = (g.__moimHostEvents ??= new Map<string, Set<string>>());
-  const hits = new Map<string, { count: number; until: number }>();
+  const hits = (g.__moimHits ??= new Map<
+    string,
+    { count: number; until: number }
+  >());
+  const accounts = (g.__moimAccounts ??= new Map<string, HostAccount>());
+  const hostAccounts = (g.__moimHostAccounts ??= new Map<string, string>());
+  const sessions = (g.__moimSessions ??= new Map<string, string>());
   const bucket = (id: string) => {
     let b = responses.get(id);
     if (!b) {
@@ -250,6 +310,37 @@ function memoryStore(): Store {
       events.delete(id);
       responses.delete(id);
       index.delete(id);
+    },
+    async deleteHost(hostHash) {
+      hosts.delete(hostHash);
+      hostEvents.delete(hostHash);
+    },
+    async peek(key) {
+      const entry = hits.get(key);
+      return entry && entry.until >= Date.now() ? entry.count : 0;
+    },
+    async getAccount(id) {
+      return accounts.get(id) ?? null;
+    },
+    async createAccount(account) {
+      if (accounts.has(account.id)) return false;
+      accounts.set(account.id, account);
+      return true;
+    },
+    async getHostAccount(hostHash) {
+      return hostAccounts.get(hostHash) ?? null;
+    },
+    async setHostAccount(hostHash, accountId) {
+      hostAccounts.set(hostHash, accountId);
+    },
+    async putSession(sessionHash, hostHash) {
+      sessions.set(sessionHash, hostHash);
+    },
+    async getSessionHost(sessionHash) {
+      return sessions.get(sessionHash) ?? null;
+    },
+    async deleteSession(sessionHash) {
+      sessions.delete(sessionHash);
     },
     async hit(key, windowSeconds) {
       const now = Date.now();

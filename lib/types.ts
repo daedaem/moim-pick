@@ -72,3 +72,14 @@ export type EventSummary = {
   start: string;
   end: string;
 };
+
+/** 모임장 계정: 아이디와 숫자 4자리로 로그인한다. 숫자는 해시로만 저장한다 */
+export type HostAccount = {
+  /** 로그인에 쓰는 아이디 (소문자로 정리한 값) */
+  id: string;
+  salt: string;
+  pinHash: string;
+  /** 이 계정의 모임장 해시 (모임과 일정이 여기에 묶인다) */
+  hostHash: string;
+  createdAt: number;
+};

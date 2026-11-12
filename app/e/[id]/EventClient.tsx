@@ -1,43 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Calendar from "@/app/components/Calendar";
 import StationPicker from "@/app/components/StationPicker";
 import { formatKorean, formatShort } from "@/lib/dates";
 import {
+  forgetEvent,
+  readAdminToken,
   readName,
   readStation,
+  rememberAdminToken,
   rememberEvent,
   rememberName,
   rememberStation,
 } from "@/lib/recent";
-import {
-  recommendMeetingPoints,
-  stationLabel,
-  type MeetingPoint,
-} from "@/lib/stations";
+import { recommendMeetingPoints, stationLabel } from "@/lib/stations";
 import { LIMITS, RELATIONS, type EventPayload } from "@/lib/types";
 
-type Tab = "check" | "result";
+type View = "loading" | "name" | "relation" | "station" | "dates" | "result";
+
+const STEPS: View[] = ["name", "relation", "station", "dates"];
 
 const cleanName = (value: string) => value.replace(/\s+/g, " ").trim();
 
 export default function EventClient() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
 
   const [data, setData] = useState<EventPayload | null>(null);
   const [loadError, setLoadError] = useState("");
-  const [tab, setTab] = useState<Tab>("check");
+  const [view, setView] = useState<View>("loading");
   const [name, setName] = useState("");
   const [relation, setRelation] = useState("");
   const [station, setStation] = useState("");
   const [unavailable, setUnavailable] = useState<Set<string>>(new Set());
-  const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
+  const [picked, setPicked] = useState<string | null>(null);
+  const [adminToken, setAdminToken] = useState("");
+  const [confirming, setConfirming] = useState(""); // "event" 또는 지우려는 사람 이름
   const restored = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -45,6 +49,13 @@ export default function EventClient() {
     setToast(message);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(""), 2400);
+  }, []);
+
+  const go = useCallback((next: View) => {
+    setView(next);
+    setFormError("");
+    setConfirming("");
+    window.scrollTo({ top: 0 });
   }, []);
 
   const apply = useCallback((result: FetchResult) => {
@@ -73,6 +84,17 @@ export default function EventClient() {
       restored.current = true;
       const { event, responses } = result.payload;
       rememberEvent({ id: event.id, title: event.title });
+
+      // 관리 링크(#admin=토큰)로 들어왔으면 이 기기에 기억해 두고 주소에서는 지운다
+      const fromHash = /^#admin=([0-9a-f]{20,})$/.exec(
+        window.location.hash,
+      )?.[1];
+      if (fromHash) {
+        rememberAdminToken(event.id, fromHash);
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+      setAdminToken(fromHash ?? readAdminToken(event.id));
+
       const saved = readName(event.id);
       const mine = saved ? responses.find((r) => r.name === saved) : undefined;
       if (saved) setName(saved);
@@ -80,10 +102,11 @@ export default function EventClient() {
         setRelation(mine.relation);
         setStation(mine.station);
         setUnavailable(new Set(mine.unavailable));
-        setTab("result");
+        setView("result");
       } else {
         // 다른 모임에서 골랐던 출발역은 다시 묻지 않는다
         setStation(readStation());
+        setView("name");
       }
     });
     return () => {
@@ -128,22 +151,20 @@ export default function EventClient() {
     () => new Map(ranking.map((row) => [row.date, row.missing.length])),
     [ranking],
   );
-  const perfect = ranking.filter((row) => row.missing.length === 0);
-  const nextBest = ranking.filter((row) => row.missing.length > 0).slice(0, 5);
-
-  // 날짜별로, 그날 되는 사람들의 출발역에서 모이기 좋은 역
+  const perfectCount = ranking.filter((row) => row.missing.length === 0).length;
   const withStation = responses.filter((r) => r.station).length;
-  const meetByDate = useMemo(() => {
-    const map = new Map<string, MeetingPoint[]>();
-    for (const row of ranking) {
-      if (row.missing.length > 0 && map.size >= 40) break;
-      const origins = responses
-        .filter((r) => r.station && !r.unavailable.includes(row.date))
-        .map((r) => r.station);
-      map.set(row.date, recommendMeetingPoints(origins));
-    }
-    return map;
-  }, [ranking, responses]);
+
+  // 결과 화면에서 보고 있는 날짜 (고르지 않았으면 가장 많이 되는 날)
+  const focusDate =
+    picked && dates.includes(picked) ? picked : (ranking[0]?.date ?? null);
+  const focus = ranking.find((row) => row.date === focusDate) ?? null;
+  const meeting = useMemo(() => {
+    if (!focusDate) return [];
+    const origins = responses
+      .filter((r) => r.station && !r.unavailable.includes(focusDate))
+      .map((r) => r.station);
+    return recommendMeetingPoints(origins);
+  }, [focusDate, responses]);
 
   function toggle(date: string) {
     setUnavailable((prev) => {
@@ -152,38 +173,38 @@ export default function EventClient() {
       else next.add(date);
       return next;
     });
-    setDirty(true);
     setFormError("");
   }
 
-  function setAll(no: boolean) {
-    setUnavailable(no ? new Set(dates) : new Set());
-    setDirty(true);
-  }
-
-  function editAs(target: string) {
+  function startEdit(target: string) {
     const found = responses.find((r) => r.name === target);
     setName(target);
     setRelation(found?.relation ?? "");
     setStation(found?.station ?? "");
     setUnavailable(new Set(found?.unavailable ?? []));
-    setDirty(false);
-    setFormError("");
-    setTab("check");
-    window.scrollTo({ top: 0 });
+    // 관계를 아직 안 적은 예전 응답은 관계부터 묻는다
+    go(found && !found.relation ? "relation" : "dates");
+  }
+
+  function submitName() {
+    if (!trimmedName) {
+      setFormError("이름을 입력해 주세요.");
+      return;
+    }
+    setName(trimmedName);
+    if (existing) {
+      // 이미 응답한 이름이면 그 응답을 이어서 고친다
+      setRelation(existing.relation);
+      setStation(existing.station);
+      setUnavailable(new Set(existing.unavailable));
+    }
+    go("relation");
   }
 
   async function save() {
     if (saving || !event) return;
-    if (!trimmedName) {
-      setFormError("이름을 먼저 입력해 주세요.");
-      document.getElementById("name-input")?.focus();
-      return;
-    }
-    if (!relation) {
-      setFormError("관계를 골라 주세요.");
-      return;
-    }
+    if (!trimmedName) return go("name");
+    if (!relation) return go("relation");
     setSaving(true);
     setFormError("");
     try {
@@ -204,11 +225,9 @@ export default function EventClient() {
       }
       rememberName(event.id, trimmedName);
       if (station) rememberStation(station);
-      setName(trimmedName);
-      setDirty(false);
       await load();
-      setTab("result");
-      window.scrollTo({ top: 0 });
+      setPicked(null);
+      go("result");
       showToast("저장했어요");
     } catch {
       setFormError(
@@ -219,43 +238,75 @@ export default function EventClient() {
     }
   }
 
-  async function removeMine() {
-    if (saving || !event || !existing) return;
+  async function removeResponse(target: string) {
+    if (saving || !event) return;
     setSaving(true);
     try {
       const res = await fetch(`/api/events/${event.id}/responses`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: existing.name }),
+        body: JSON.stringify({ name: target }),
       });
       if (!res.ok) {
-        setFormError("지우지 못했어요. 다시 시도해 주세요.");
+        showToast("지우지 못했어요. 다시 시도해 주세요.");
         return;
       }
-      setUnavailable(new Set());
-      setDirty(false);
+      if (target === trimmedName) setUnavailable(new Set());
       await load();
-      showToast("응답을 지웠어요");
+      go("result");
+      showToast(`${target}님 응답을 지웠어요`);
     } catch {
-      setFormError("연결이 끊겼어요. 다시 시도해 주세요.");
+      showToast("연결이 끊겼어요. 다시 시도해 주세요.");
     } finally {
       setSaving(false);
     }
   }
 
-  async function share() {
-    if (!event) return;
-    const url = window.location.href;
+  async function removeEvent() {
+    if (saving || !event) return;
+    setSaving(true);
     try {
-      await navigator.clipboard.writeText(url);
-      showToast("링크를 복사했어요");
+      const res = await fetch(`/api/events/${event.id}`, {
+        method: "DELETE",
+        headers: { "x-admin-token": adminToken },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(body.error ?? "모임을 지우지 못했어요.");
+        setConfirming("");
+        return;
+      }
+      forgetEvent(event.id);
+      router.push("/");
     } catch {
-      // 클립보드를 못 쓰는 브라우저: 주소를 직접 보여 준다
-      showToast(url);
+      showToast("연결이 끊겼어요. 다시 시도해 주세요.");
+    } finally {
+      setSaving(false);
     }
   }
 
-  if (!event) {
+  async function copy(text: string, done: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast(done);
+    } catch {
+      // 클립보드를 못 쓰는 브라우저: 주소를 직접 보여 준다
+      showToast(text);
+    }
+  }
+
+  const shareLink = () =>
+    copy(
+      window.location.origin + window.location.pathname,
+      "링크를 복사했어요",
+    );
+  const copyAdminLink = () =>
+    copy(
+      `${window.location.origin}${window.location.pathname}#admin=${adminToken}`,
+      "관리 링크를 복사했어요",
+    );
+
+  if (!event || view === "loading") {
     return (
       <main className="page">
         <p className="brand">
@@ -264,7 +315,7 @@ export default function EventClient() {
         {loadError ? (
           <div className="card empty">
             <p className="empty-title">{loadError}</p>
-            <Link className="btn ghost" href="/">
+            <Link className="btn soft" href="/">
               새 모임 만들기
             </Link>
           </div>
@@ -275,370 +326,481 @@ export default function EventClient() {
     );
   }
 
-  const okCount = dates.length - unavailable.size;
-  const ready = trimmedName !== "" && relation !== "";
+  const toastNode = (
+    <div
+      className={`toast${toast ? " show" : ""}`}
+      role="status"
+      aria-live="polite"
+    >
+      {toast}
+    </div>
+  );
 
-  return (
-    <main className={`page${tab === "check" ? " with-bar" : ""}`}>
-      <p className="brand">
-        <Link href="/">모임픽</Link>
-      </p>
+  // ---------- 입력 단계 ----------
+  if (view !== "result") {
+    const stepIndex = STEPS.indexOf(view);
+    const back = () =>
+      stepIndex === 0 ? go("result") : go(STEPS[stepIndex - 1]);
+    const okCount = dates.length - unavailable.size;
 
-      <header className="event-head">
-        <h1 className="event-title">{event.title}</h1>
-        {event.memo && <p className="event-memo">{event.memo}</p>}
-        <p className="event-range">
-          {formatShort(dates[0])}부터 {formatShort(dates[dates.length - 1])}까지
-          후보 {dates.length}일
-        </p>
-        <button type="button" className="btn ghost small" onClick={share}>
-          링크 복사
-        </button>
-      </header>
+    return (
+      <main className="page with-cta">
+        <div className="step-top">
+          <button type="button" className="back" onClick={back}>
+            {stepIndex === 0 ? "결과 보기" : "이전"}
+          </button>
+          <div
+            className="progress"
+            role="progressbar"
+            aria-valuemin={1}
+            aria-valuemax={STEPS.length}
+            aria-valuenow={stepIndex + 1}
+            aria-label="입력 단계"
+          >
+            <span
+              style={{ width: `${((stepIndex + 1) / STEPS.length) * 100}%` }}
+            />
+          </div>
+        </div>
 
-      <div className="tabs" role="tablist" aria-label="보기 전환">
-        <button
-          type="button"
-          role="tab"
-          id="tab-check"
-          aria-selected={tab === "check"}
-          aria-controls="panel-check"
-          className={`tab${tab === "check" ? " on" : ""}`}
-          onClick={() => setTab("check")}
-        >
-          내 일정 표시
-        </button>
-        <button
-          type="button"
-          role="tab"
-          id="tab-result"
-          aria-selected={tab === "result"}
-          aria-controls="panel-result"
-          className={`tab${tab === "result" ? " on" : ""}`}
-          onClick={() => setTab("result")}
-        >
-          결과{" "}
-          {responses.length > 0 && (
-            <span className="tab-count">{responses.length}명</span>
-          )}
-        </button>
-      </div>
+        <p className="step-event">{event.title}</p>
 
-      {tab === "check" ? (
-        <section id="panel-check" role="tabpanel" aria-labelledby="tab-check">
-          <label className="field">
-            <span className="field-label">이름</span>
+        {view === "name" && (
+          <>
+            <h1 className="question">이름을 알려 주세요</h1>
+            <p className="lead">
+              다른 사람들이 알아볼 수 있는 이름으로 적어 주세요.
+            </p>
             <input
               id="name-input"
-              className="input"
+              className="input big"
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
                 setFormError("");
-                // 이미 응답한 이름을 입력하면 (아직 손대지 않은 경우에만) 그 응답을 불러온다
-                const match = responses.find(
-                  (r) => r.name === cleanName(e.target.value),
-                );
-                if (match && !dirty) {
-                  setRelation(match.relation);
-                  setStation(match.station);
-                  setUnavailable(new Set(match.unavailable));
-                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitName();
               }}
               placeholder="예: 홍길동"
               maxLength={LIMITS.nameMax}
               autoComplete="name"
-              enterKeyHint="done"
+              enterKeyHint="next"
+              aria-label="이름"
             />
-          </label>
-
-          <fieldset className="field spaced">
-            <legend className="field-label">주최자와의 관계</legend>
-            <div className="chips">
-              {RELATIONS.map((item) => (
-                <button
-                  type="button"
-                  key={item}
-                  className={`chip${relation === item ? " on" : ""}`}
-                  aria-pressed={relation === item}
-                  onClick={() => {
-                    setRelation(item);
-                    setDirty(true);
-                    setFormError("");
-                  }}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </fieldset>
-
-          <div className="field spaced">
-            <span className="field-label">
-              출발하기 편한 지하철역 <span className="optional">선택</span>
-            </span>
-            <StationPicker
-              value={station}
-              onChange={(next) => {
-                setStation(next);
-                setDirty(true);
-              }}
-            />
-            <p className="field-help">
-              적어 주면 그날 오는 사람들 기준으로 모이기 좋은 역을 추천해요.
-            </p>
-          </div>
-
-          {existing && !dirty && (
-            <p className="hint">
-              이 이름으로 저장된 응답을 보고 있어요. 고친 뒤 다시 저장하면
-              바뀌어요.
-            </p>
-          )}
-          {existing && dirty && !sameSet(existing.unavailable, unavailable) && (
-            <p className="hint">
-              저장하면 &lsquo;{existing.name}&rsquo; 응답이 지금 표시한 대로
-              바뀌어요.
-            </p>
-          )}
-
-          {!ready && (
-            <p className="gate">
-              이름과 관계를 먼저 적으면 날짜를 표시할 수 있어요.
-            </p>
-          )}
-
-          {ready && (
-            <>
-              <p className="guide">
-                안 되는 날을 눌러 줄을 그어 주세요. 다시 누르면 지워져요.
+            {existing && (
+              <p className="hint">
+                이미 응답한 이름이에요. 계속하면 그 응답을 고쳐요.
               </p>
-              <div className="quick">
-                <button
-                  type="button"
-                  className="btn ghost small"
-                  onClick={() => setAll(false)}
-                >
-                  전부 되는 날로
-                </button>
-                <button
-                  type="button"
-                  className="btn ghost small"
-                  onClick={() => setAll(true)}
-                >
-                  전부 안 되는 날로
-                </button>
-              </div>
+            )}
+          </>
+        )}
 
+        {view === "relation" && (
+          <>
+            <h1 className="question">
+              {trimmedName}님은 주최자와
+              <br />
+              어떤 사이인가요?
+            </h1>
+            <ul className="options">
+              {RELATIONS.map((item) => (
+                <li key={item}>
+                  <button
+                    type="button"
+                    className={`option${relation === item ? " on" : ""}`}
+                    aria-pressed={relation === item}
+                    onClick={() => {
+                      setRelation(item);
+                      go("station");
+                    }}
+                  >
+                    {item}
+                    <span className="option-check" aria-hidden="true" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+
+        {view === "station" && (
+          <>
+            <h1 className="question">
+              어느 역에서 출발하면
+              <br />
+              편한가요?
+            </h1>
+            <p className="lead">
+              그날 오는 사람들 기준으로 모이기 좋은 역을 추천해 드려요.
+            </p>
+            <StationPicker value={station} onChange={setStation} />
+          </>
+        )}
+
+        {view === "dates" && (
+          <>
+            <h1 className="question">안 되는 날을 눌러 주세요</h1>
+            <p className="lead">다 괜찮으면 그대로 저장하면 돼요.</p>
+            <div className="quick">
+              <button
+                type="button"
+                className="btn soft small"
+                onClick={() => setUnavailable(new Set())}
+              >
+                전부 되는 날로
+              </button>
+              <button
+                type="button"
+                className="btn soft small"
+                onClick={() => setUnavailable(new Set(dates))}
+              >
+                전부 안 되는 날로
+              </button>
+            </div>
+            <div className="card">
               <Calendar
                 mode="check"
                 dates={dates}
                 unavailable={unavailable}
                 onToggle={toggle}
               />
-            </>
-          )}
+            </div>
+            {existing &&
+              (confirming === existing.name ? (
+                <div className="confirm">
+                  <span>{existing.name}님 응답을 지울까요?</span>
+                  <button
+                    type="button"
+                    className="btn danger small"
+                    onClick={() => removeResponse(existing.name)}
+                  >
+                    지우기
+                  </button>
+                  <button
+                    type="button"
+                    className="btn soft small"
+                    onClick={() => setConfirming("")}
+                  >
+                    취소
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="text-btn danger"
+                  onClick={() => setConfirming(existing.name)}
+                >
+                  내 응답 지우기
+                </button>
+              ))}
+          </>
+        )}
 
-          {existing && (
-            <button
-              type="button"
-              className="link-danger"
-              onClick={removeMine}
-              disabled={saving}
-            >
-              &lsquo;{existing.name}&rsquo; 응답 지우기
-            </button>
-          )}
-
-          <div className="save-bar">
-            <div className="save-inner">
-              <p className="save-summary" aria-live="polite">
-                {formError ? (
-                  <span className="error-inline" role="alert">
-                    {formError}
-                  </span>
-                ) : (
-                  <>
-                    되는 날 <strong>{okCount}</strong>일, 안 되는 날{" "}
-                    <strong>{unavailable.size}</strong>일
-                  </>
-                )}
+        <div className="cta-bar">
+          <div className="cta-inner">
+            {formError && (
+              <p className="cta-error" role="alert">
+                {formError}
               </p>
+            )}
+            {view === "dates" && !formError && (
+              <p className="cta-note" aria-live="polite">
+                되는 날 <strong>{okCount}</strong>일, 안 되는 날{" "}
+                <strong>{unavailable.size}</strong>일
+              </p>
+            )}
+            {view === "name" && (
               <button
                 type="button"
-                className="btn primary"
+                className="btn primary block"
+                onClick={submitName}
+                disabled={!trimmedName}
+              >
+                다음
+              </button>
+            )}
+            {view === "relation" && (
+              <button
+                type="button"
+                className="btn primary block"
+                onClick={() => go("station")}
+                disabled={!relation}
+              >
+                다음
+              </button>
+            )}
+            {view === "station" && (
+              <button
+                type="button"
+                className="btn primary block"
+                onClick={() => go("dates")}
+              >
+                {station ? "다음" : "건너뛰기"}
+              </button>
+            )}
+            {view === "dates" && (
+              <button
+                type="button"
+                className="btn primary block"
                 onClick={save}
                 disabled={saving}
               >
-                {saving ? "저장 중…" : "저장"}
+                {saving ? "저장 중…" : "저장하기"}
               </button>
-            </div>
+            )}
           </div>
+        </div>
+        {toastNode}
+      </main>
+    );
+  }
+
+  // ---------- 결과 ----------
+  const total = responses.length;
+  const mine = responses.find((r) => r.name === trimmedName);
+  const best = ranking[0];
+
+  return (
+    <main className="page with-cta">
+      <p className="brand">
+        <Link href="/">모임픽</Link>
+      </p>
+
+      <header className="event-head">
+        <h1 className="headline">{event.title}</h1>
+        {event.memo && <p className="event-memo">{event.memo}</p>}
+        <p className="event-range">
+          {formatShort(dates[0])}부터 {formatShort(dates[dates.length - 1])}까지
+        </p>
+      </header>
+
+      <div className={`summary${total > 0 && perfectCount > 0 ? " good" : ""}`}>
+        {total === 0 ? (
+          <>
+            <p className="summary-main">아직 응답한 사람이 없어요</p>
+            <p className="summary-sub">
+              링크를 보내고, 내 일정부터 표시해 보세요.
+            </p>
+          </>
+        ) : perfectCount > 0 ? (
+          <>
+            <p className="summary-main">
+              {total}명 모두 되는 날이 {perfectCount}일 있어요
+            </p>
+            <p className="summary-sub">달력에서 파란 날을 눌러 보세요.</p>
+          </>
+        ) : (
+          <>
+            <p className="summary-main">모두 되는 날은 아직 없어요</p>
+            <p className="summary-sub">
+              가장 많이 되는 날은 {formatKorean(best.date)},{" "}
+              {total - best.missing.length}명이 돼요.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="card">
+        <Calendar
+          mode="result"
+          dates={dates}
+          missing={missingMap}
+          total={total}
+          selected={total > 0 ? focusDate : null}
+          onSelect={setPicked}
+        />
+        {total > 0 && (
+          <p className="legend">
+            <span className="legend-dot" aria-hidden="true" />
+            모두 되는 날
+          </p>
+        )}
+      </div>
+
+      {total > 0 && focus && (
+        <section className="card detail" aria-live="polite">
+          <h2 className="detail-date">{formatKorean(focus.date)}</h2>
+          <p className="detail-count">
+            {focus.missing.length === 0
+              ? `${total}명 모두 돼요`
+              : `${total}명 중 ${total - focus.missing.length}명이 돼요`}
+          </p>
+          {focus.missing.length > 0 && (
+            <dl className="facts">
+              <dt>안 되는 사람</dt>
+              <dd>{focus.missing.join(", ")}</dd>
+            </dl>
+          )}
+          {meeting.length > 0 ? (
+            <dl className="facts">
+              <dt>모이기 좋은 역</dt>
+              <dd>
+                <a
+                  className="station-link"
+                  href={`https://map.naver.com/p/search/${encodeURIComponent(stationLabel(meeting[0].name))}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {stationLabel(meeting[0].name)}
+                </a>
+                {meeting[0].maxStops > 0 && (
+                  <span className="facts-sub">
+                    가장 먼 사람이 {meeting[0].maxStops}정거장
+                  </span>
+                )}
+                {meeting.length > 1 && (
+                  <span className="facts-sub">
+                    다른 후보:{" "}
+                    {meeting
+                      .slice(1)
+                      .map((p) => stationLabel(p.name))
+                      .join(", ")}
+                  </span>
+                )}
+              </dd>
+            </dl>
+          ) : (
+            <p className="facts-empty">
+              출발역을 적은 사람이 있으면 모이기 좋은 역을 추천해요.
+            </p>
+          )}
+          {meeting.length > 0 && (
+            <p className="fineprint">
+              출발역을 적은 {withStation}명 중 이날 되는 사람들의 정거장 수로
+              골랐어요. 환승 시간은 반영하지 않았어요.
+            </p>
+          )}
         </section>
-      ) : (
-        <section id="panel-result" role="tabpanel" aria-labelledby="tab-result">
-          {responses.length === 0 ? (
-            <div className="card empty">
-              <p className="empty-title">아직 응답한 사람이 없어요</p>
-              <p className="empty-body">
-                링크를 단톡방에 보내고, 내 일정부터 표시해 보세요.
-              </p>
-              <div className="empty-actions">
+      )}
+
+      {total > 0 && (
+        <section className="section">
+          <h2 className="section-title">
+            응답한 사람 <span className="count">{total}명</span>
+          </h2>
+          <ul className="card list">
+            {responses.map((r) => (
+              <li key={r.name} className="row">
                 <button
                   type="button"
-                  className="btn primary"
-                  onClick={() => setTab("check")}
+                  className="row-button"
+                  onClick={() => startEdit(r.name)}
                 >
-                  내 일정 표시
+                  <span className="row-main">{r.name}</span>
+                  <span className="row-sub">
+                    {[r.relation, r.station && stationLabel(r.station)]
+                      .filter(Boolean)
+                      .join(", ") || "관계 미입력"}
+                  </span>
                 </button>
-                <button type="button" className="btn ghost" onClick={share}>
-                  링크 복사
+                <span className="row-side">
+                  {r.unavailable.length === 0
+                    ? "다 돼요"
+                    : `${r.unavailable.length}일 불가`}
+                </span>
+                {adminToken &&
+                  (confirming === r.name ? (
+                    <button
+                      type="button"
+                      className="btn danger small"
+                      onClick={() => removeResponse(r.name)}
+                    >
+                      지우기
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => setConfirming(r.name)}
+                    >
+                      삭제
+                    </button>
+                  ))}
+              </li>
+            ))}
+          </ul>
+          <p className="fineprint">이름을 누르면 그 응답을 고칠 수 있어요.</p>
+        </section>
+      )}
+
+      {adminToken && (
+        <section className="section">
+          <h2 className="section-title">모임 관리</h2>
+          <div className="card manage">
+            <p className="manage-note">
+              이 기기에서 만든 모임이라 관리할 수 있어요. 다른 기기에서도
+              관리하려면 관리 링크를 보관해 두세요.
+            </p>
+            <button
+              type="button"
+              className="btn soft block"
+              onClick={copyAdminLink}
+            >
+              관리 링크 복사
+            </button>
+            {confirming === "event" ? (
+              <div className="confirm">
+                <span>
+                  모임과 응답 {total}건을 모두 지워요. 되돌릴 수 없어요.
+                </span>
+                <button
+                  type="button"
+                  className="btn danger small"
+                  onClick={removeEvent}
+                  disabled={saving}
+                >
+                  지우기
+                </button>
+                <button
+                  type="button"
+                  className="btn soft small"
+                  onClick={() => setConfirming("")}
+                >
+                  취소
                 </button>
               </div>
-            </div>
-          ) : (
-            <>
-              <section className="block">
-                <h2 className="section-title">
-                  {responses.length}명 모두 되는 날
-                  {perfect.length > 0 && (
-                    <span className="count">{perfect.length}일</span>
-                  )}
-                </h2>
-                {perfect.length > 0 ? (
-                  <ul className="perfect-list">
-                    {perfect.map((row) => (
-                      <li key={row.date}>
-                        <span className="hl">{formatKorean(row.date)}</span>
-                        <Meet points={meetByDate.get(row.date)} />
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="none">
-                    모두 되는 날이 없어요. 아래에서 빠지는 사람이 가장 적은 날을
-                    확인해 보세요.
-                  </p>
-                )}
-              </section>
-
-              {nextBest.length > 0 && (
-                <section className="block">
-                  <h2 className="section-title">
-                    {perfect.length > 0
-                      ? "그다음으로 많이 되는 날"
-                      : "가장 많이 되는 날"}
-                  </h2>
-                  <ol className="rank-list">
-                    {nextBest.map((row) => (
-                      <li key={row.date}>
-                        <span className="rank-date">
-                          {formatKorean(row.date)}
-                        </span>
-                        <span className="rank-count">
-                          {responses.length - row.missing.length}명 가능
-                        </span>
-                        <span className="rank-missing">
-                          안 되는 사람: {row.missing.join(", ")}
-                        </span>
-                        <Meet points={meetByDate.get(row.date)} />
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              )}
-
-              <p className="meet-note">
-                {withStation > 0
-                  ? `모이기 좋은 역은 출발역을 적은 ${withStation}명 중 그날 되는 사람들의 정거장 수로 골라요. 환승 시간은 반영하지 않은 대략적인 추천이에요.`
-                  : "출발역을 적은 사람이 생기면 날짜마다 모이기 좋은 역을 추천해요."}
-              </p>
-
-              <section className="block">
-                <h2 className="section-title">달력으로 보기</h2>
-                <Calendar
-                  mode="result"
-                  dates={dates}
-                  missing={missingMap}
-                  total={responses.length}
-                />
-              </section>
-
-              <section className="block">
-                <h2 className="section-title">
-                  응답한 사람<span className="count">{responses.length}명</span>
-                </h2>
-                <p className="guide">이름을 누르면 그 응답을 고칠 수 있어요.</p>
-                <ul className="people">
-                  {responses.map((r) => (
-                    <li key={r.name}>
-                      <button
-                        type="button"
-                        className="person"
-                        onClick={() => editAs(r.name)}
-                      >
-                        {r.name}
-                        <span className="person-meta">
-                          {[
-                            r.relation,
-                            r.station && stationLabel(r.station),
-                            r.unavailable.length === 0
-                              ? "다 됨"
-                              : `${r.unavailable.length}일 불가`,
-                          ]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            </>
-          )}
+            ) : (
+              <button
+                type="button"
+                className="text-btn danger"
+                onClick={() => setConfirming("event")}
+              >
+                모임 삭제
+              </button>
+            )}
+          </div>
         </section>
       )}
 
       <p className="credit">
         역 정보 ©{" "}
-        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noreferrer"
+        >
           OpenStreetMap
         </a>{" "}
         기여자
       </p>
 
-      <div
-        className={`toast${toast ? " show" : ""}`}
-        role="status"
-        aria-live="polite"
-      >
-        {toast}
+      <div className="cta-bar">
+        <div className="cta-inner two">
+          <button type="button" className="btn soft" onClick={shareLink}>
+            링크 복사
+          </button>
+          <button
+            type="button"
+            className="btn primary"
+            onClick={() => (mine ? startEdit(mine.name) : go("name"))}
+          >
+            {mine ? "내 일정 고치기" : "내 일정 표시하기"}
+          </button>
+        </div>
       </div>
+      {toastNode}
     </main>
-  );
-}
-
-/** 그날 모이기 좋은 역 한 줄 */
-function Meet({ points }: { points: MeetingPoint[] | undefined }) {
-  if (!points || points.length === 0) return null;
-  const [best, ...others] = points;
-  return (
-    <span className="meet">
-      모이기 좋은 역{" "}
-      <a
-        href={`https://map.naver.com/p/search/${encodeURIComponent(stationLabel(best.name))}`}
-        target="_blank"
-        rel="noreferrer"
-      >
-        {stationLabel(best.name)}
-      </a>
-      {best.maxStops > 0 && <> (가장 먼 사람 {best.maxStops}정거장)</>}
-      {others.length > 0 && (
-        <span className="meet-others">
-          다음 후보: {others.map((p) => stationLabel(p.name)).join(", ")}
-        </span>
-      )}
-    </span>
   );
 }
 
@@ -665,8 +827,4 @@ async function fetchEvent(id: string): Promise<FetchResult> {
       network: true,
     };
   }
-}
-
-function sameSet(list: string[], set: Set<string>) {
-  return list.length === set.size && list.every((d) => set.has(d));
 }

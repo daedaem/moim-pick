@@ -26,6 +26,7 @@ type StoredResponse = {
 interface Store {
   createEvent(event: MoimEvent): Promise<void>;
   getEvent(id: string): Promise<MoimEvent | null>;
+  deleteEvent(id: string): Promise<void>;
   listResponses(id: string): Promise<MoimResponse[]>;
   countResponses(id: string): Promise<number>;
   hasResponse(id: string, name: string): Promise<boolean>;
@@ -48,7 +49,8 @@ function findCredentials(): { url: string; token: string } | null {
     ["KV_REST_API_URL", "KV_REST_API_TOKEN"],
   ];
   for (const [u, t] of pairs) {
-    if (env[u] && env[t]) return { url: env[u] as string, token: env[t] as string };
+    if (env[u] && env[t])
+      return { url: env[u] as string, token: env[t] as string };
   }
   // 연결할 때 접두사를 직접 지정한 경우 (예: MOIM_KV_REST_API_URL)
   for (const key of Object.keys(env)) {
@@ -75,8 +77,13 @@ function redisStore(redis: Redis): Store {
     async getEvent(id) {
       return (await redis.get<MoimEvent>(eventKey(id))) ?? null;
     },
+    async deleteEvent(id) {
+      await redis.del(eventKey(id), responsesKey(id));
+    },
     async listResponses(id) {
-      const all = await redis.hgetall<Record<string, StoredResponse>>(responsesKey(id));
+      const all = await redis.hgetall<Record<string, StoredResponse>>(
+        responsesKey(id),
+      );
       if (!all) return [];
       return Object.entries(all).map(([name, value]) => ({
         name,
@@ -132,6 +139,10 @@ function memoryStore(): Store {
     },
     async getEvent(id) {
       return events.get(id) ?? null;
+    },
+    async deleteEvent(id) {
+      events.delete(id);
+      responses.delete(id);
     },
     async listResponses(id) {
       return [...bucket(id).entries()].map(([name, v]) => ({

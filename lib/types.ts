@@ -5,6 +5,8 @@ export type MoimEvent = {
   /** 후보 날짜 (YYYY-MM-DD, 오름차순) */
   dates: string[];
   createdAt: number;
+  /** 관리용 토큰의 SHA-256 해시. 서버에만 두고 응답으로 내보내지 않는다 */
+  adminHash?: string;
 };
 
 export type MoimResponse = {
@@ -31,4 +33,10 @@ export const LIMITS = {
   participantsMax: 60,
 } as const;
 
-export const RELATIONS = ["친구", "직장동료", "학교 선후배", "가족·친척", "기타"] as const;
+export const RELATIONS = [
+  "친구",
+  "직장동료",
+  "학교 선후배",
+  "가족·친척",
+  "기타",
+] as const;

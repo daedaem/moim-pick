@@ -11,7 +11,10 @@ const edges = data.edges as [number, number][];
 
 const indexByName = new Map(stations.map((s, i) => [s[0], i]));
 
-export type StationInfo = { name: string; lines: { ko: string; colour: string }[] };
+export type StationInfo = {
+  name: string;
+  lines: { ko: string; colour: string }[];
+};
 
 export function isStation(name: string): boolean {
   return indexByName.has(name);
@@ -39,7 +42,9 @@ export function searchStations(query: string, limit = 8): StationInfo[] {
     if (compact.startsWith(q)) starts.push(name);
     else if (compact.includes(q)) contains.push(name);
   }
-  return [...starts, ...contains].slice(0, limit).map((name) => stationInfo(name)!);
+  return [...starts, ...contains]
+    .slice(0, limit)
+    .map((name) => stationInfo(name)!);
 }
 
 let adjacency: number[][] | null = null;
@@ -85,7 +90,10 @@ export type MeetingPoint = {
  * 기준: 가장 멀리서 오는 사람의 정거장 수가 가장 적은 역. 1정거장 차이까지는 환승역을 우선하고, 그다음 전체 합이 적은 역.
  * 정거장 수만 세므로 환승 시간·급행은 반영하지 않는다(대략적인 추천).
  */
-export function recommendMeetingPoints(origins: string[], limit = 3): MeetingPoint[] {
+export function recommendMeetingPoints(
+  origins: string[],
+  limit = 3,
+): MeetingPoint[] {
   const starts = origins
     .map((name) => indexByName.get(name))
     .filter((i): i is number => i !== undefined);

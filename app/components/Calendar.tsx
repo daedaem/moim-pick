@@ -1,8 +1,12 @@
 "use client";
 
 import { useMemo } from "react";
-import { buildMonthGrids, formatKorean, parseYmd, WEEKDAY_LABELS } from "@/lib/dates";
-import { MarkerCircle, Slash } from "./Marks";
+import {
+  buildMonthGrids,
+  formatKorean,
+  parseYmd,
+  WEEKDAY_LABELS,
+} from "@/lib/dates";
 
 type CheckProps = {
   mode: "check";
@@ -17,6 +21,8 @@ type ResultProps = {
   /** 날짜별 안 되는 사람 수 */
   missing: Map<string, number>;
   total: number;
+  selected: string | null;
+  onSelect: (date: string) => void;
 };
 
 export default function Calendar(props: CheckProps | ResultProps) {
@@ -27,28 +33,33 @@ export default function Calendar(props: CheckProps | ResultProps) {
   return (
     <div className="months">
       {grids.map((grid) => (
-        <section className="sheet" key={grid.key} aria-label={`${grid.year}년 ${grid.month}월`}>
-          <header className="sheet-head">
-            <span className="sheet-month">{grid.month}월</span>
-            <span className="sheet-year">{grid.year}</span>
-          </header>
+        <section
+          className="month"
+          key={grid.key}
+          aria-label={`${grid.year}년 ${grid.month}월`}
+        >
+          <h3 className="month-title">
+            {grid.year}년 {grid.month}월
+          </h3>
           <div className="week-labels" aria-hidden="true">
             {WEEKDAY_LABELS.map((label, i) => (
-              <span key={label} className={i === 0 ? "sun" : i === 6 ? "sat" : undefined}>
+              <span
+                key={label}
+                className={i === 0 ? "sun" : i === 6 ? "sat" : undefined}
+              >
                 {label}
               </span>
             ))}
           </div>
           <div className="grid">
             {visibleCells(grid.cells, candidates).map(({ date, index }) => {
-              if (!date) return <span className="cell blank" key={`b${index}`} />;
+              if (!date)
+                return <span className="cell blank" key={`b${index}`} />;
               const day = parseYmd(date)!.getUTCDate();
-              const weekday = index % 7;
-              const tone = weekday === 0 ? " sun" : weekday === 6 ? " sat" : "";
 
               if (!candidates.has(date)) {
                 return (
-                  <span className={`cell off${tone}`} key={date} aria-hidden="true">
+                  <span className="cell off" key={date} aria-hidden="true">
                     <span className="num">{day}</span>
                   </span>
                 );
@@ -60,23 +71,26 @@ export default function Calendar(props: CheckProps | ResultProps) {
                   <button
                     type="button"
                     key={date}
-                    className={`cell pick${tone}${no ? " no" : ""}`}
+                    className={`cell pick${no ? " no" : ""}`}
                     aria-pressed={no}
                     aria-label={`${formatKorean(date)} ${no ? "안 되는 날" : "되는 날"}`}
                     onClick={() => props.onToggle(date)}
                   >
                     <span className="num">{day}</span>
-                    {no && <Slash className="slash" />}
+                    <span className="sub">{no ? "안 돼요" : ""}</span>
                   </button>
                 );
               }
 
               const miss = props.missing.get(date) ?? 0;
               const perfect = props.total > 0 && miss === 0;
+              const selected = props.selected === date;
               return (
-                <span
+                <button
+                  type="button"
                   key={date}
-                  className={`cell show${tone}${perfect ? " perfect" : ""}`}
+                  className={`cell show${perfect ? " perfect" : ""}${selected ? " selected" : ""}`}
+                  aria-pressed={selected}
                   aria-label={
                     props.total === 0
                       ? formatKorean(date)
@@ -84,11 +98,17 @@ export default function Calendar(props: CheckProps | ResultProps) {
                         ? `${formatKorean(date)} 모두 가능`
                         : `${formatKorean(date)} ${miss}명 불가`
                   }
+                  onClick={() => props.onSelect(date)}
                 >
                   <span className="num">{day}</span>
-                  {perfect && <MarkerCircle className="circle" />}
-                  {props.total > 0 && !perfect && <span className="miss">{miss}명 불가</span>}
-                </span>
+                  <span className="sub">
+                    {props.total === 0
+                      ? ""
+                      : perfect
+                        ? "모두 가능"
+                        : `${miss}명 불가`}
+                  </span>
+                </button>
               );
             })}
           </div>

@@ -1,7 +1,15 @@
 // 날짜는 전부 'YYYY-MM-DD' 문자열로 다루고, 계산은 UTC 기준으로만 한다.
 // (브라우저/서버 타임존이 달라도 하루씩 밀리지 않게 하기 위함)
 
-export const WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"] as const;
+export const WEEKDAY_LABELS = [
+  "일",
+  "월",
+  "화",
+  "수",
+  "목",
+  "금",
+  "토",
+] as const;
 
 export function parseYmd(value: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);

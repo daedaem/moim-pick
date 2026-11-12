@@ -19,7 +19,11 @@ export default function StationPicker({ value, onChange }: Props) {
       <div className="station-picked">
         <span className="station-name">{stationLabel(selected.name)}</span>
         <LineDots lines={selected.lines} />
-        <button type="button" className="station-clear" onClick={() => onChange("")}>
+        <button
+          type="button"
+          className="station-clear"
+          onClick={() => onChange("")}
+        >
           바꾸기
         </button>
       </div>
@@ -41,7 +45,9 @@ export default function StationPicker({ value, onChange }: Props) {
       {query.trim() !== "" && (
         <ul className="station-results">
           {results.length === 0 ? (
-            <li className="station-none">찾는 역이 없어요. 수도권 전철역만 검색돼요.</li>
+            <li className="station-none">
+              찾는 역이 없어요. 수도권 전철역만 검색돼요.
+            </li>
           ) : (
             results.map((station) => (
               <li key={station.name}>
@@ -53,7 +59,9 @@ export default function StationPicker({ value, onChange }: Props) {
                     setQuery("");
                   }}
                 >
-                  <span className="station-name">{stationLabel(station.name)}</span>
+                  <span className="station-name">
+                    {stationLabel(station.name)}
+                  </span>
                   <LineDots lines={station.lines} withNames />
                 </button>
               </li>

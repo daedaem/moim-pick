@@ -1,4 +1,14 @@
-import { cleanLine, fail, handleError, json, newEventId, readBody } from "@/lib/api";
+import {
+  cleanLine,
+  fail,
+  handleError,
+  json,
+  newAdminToken,
+  newEventId,
+  publicEvent,
+  readBody,
+  sha256,
+} from "@/lib/api";
 import { buildCandidates, parseYmd } from "@/lib/dates";
 import { getStore } from "@/lib/store";
 import { LIMITS, type MoimEvent } from "@/lib/types";
@@ -33,9 +43,18 @@ export async function POST(request: Request) {
 
   try {
     const store = getStore();
-    const event: MoimEvent = { id: newEventId(), title, memo, dates, createdAt: Date.now() };
+    // 관리용 토큰은 만든 사람에게 이번 한 번만 알려 주고, 서버에는 해시만 남긴다
+    const adminToken = newAdminToken();
+    const event: MoimEvent = {
+      id: newEventId(),
+      title,
+      memo,
+      dates,
+      createdAt: Date.now(),
+      adminHash: await sha256(adminToken),
+    };
     await store.createEvent(event);
-    return json({ event }, 201);
+    return json({ event: publicEvent(event), adminToken }, 201);
   } catch (error) {
     return handleError(error);
   }

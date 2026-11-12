@@ -17,7 +17,11 @@ export function parseRecent(raw: string): RecentEvent[] {
   try {
     const list = raw ? JSON.parse(raw) : [];
     return Array.isArray(list)
-      ? list.filter((x) => x && typeof x.id === "string" && typeof x.title === "string").slice(0, 8)
+      ? list
+          .filter(
+            (x) => x && typeof x.id === "string" && typeof x.title === "string",
+          )
+          .slice(0, 8)
       : [];
   } catch {
     return [];
@@ -30,7 +34,10 @@ export function readRecent(): RecentEvent[] {
 
 export function rememberEvent(event: RecentEvent) {
   try {
-    const next = [event, ...readRecent().filter((x) => x.id !== event.id)].slice(0, 8);
+    const next = [
+      event,
+      ...readRecent().filter((x) => x.id !== event.id),
+    ].slice(0, 8);
     window.localStorage.setItem(KEY, JSON.stringify(next));
   } catch {
     /* 저장 못 해도 무시 */
@@ -69,6 +76,33 @@ export function readStation(): string {
 export function rememberStation(station: string) {
   try {
     window.localStorage.setItem("mp:station", station);
+  } catch {
+    /* 무시 */
+  }
+}
+
+export function readAdminToken(eventId: string): string {
+  try {
+    return window.localStorage.getItem(`mp:admin:${eventId}`) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberAdminToken(eventId: string, token: string) {
+  try {
+    window.localStorage.setItem(`mp:admin:${eventId}`, token);
+  } catch {
+    /* 무시 */
+  }
+}
+
+export function forgetEvent(eventId: string) {
+  try {
+    window.localStorage.removeItem(`mp:admin:${eventId}`);
+    window.localStorage.removeItem(`mp:name:${eventId}`);
+    const next = readRecent().filter((x) => x.id !== eventId);
+    window.localStorage.setItem(KEY, JSON.stringify(next));
   } catch {
     /* 무시 */
   }

@@ -22,7 +22,9 @@ export function handleError(error: unknown) {
   return fail("서버에서 문제가 생겼어요. 잠시 뒤 다시 시도해 주세요.", 500);
 }
 
-export async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+export async function readBody(
+  request: Request,
+): Promise<Record<string, unknown> | null> {
   try {
     const body = await request.json();
     return body && typeof body === "object" && !Array.isArray(body)
@@ -48,4 +50,30 @@ export function newEventId(): string {
   let id = "";
   for (const b of bytes) id += alphabet[b % alphabet.length];
   return id;
+}
+
+/** 모임을 만든 사람만 아는 관리용 토큰 */
+export function newAdminToken(): string {
+  const bytes = new Uint8Array(18);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  return Array.from(new Uint8Array(digest), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+/** 응답으로 내보낼 때는 관리용 해시를 뺀다 */
+export function publicEvent<T extends { adminHash?: string }>(
+  event: T,
+): Omit<T, "adminHash"> {
+  const { adminHash: _omit, ...rest } = event;
+  void _omit;
+  return rest;
 }

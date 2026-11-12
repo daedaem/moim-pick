@@ -34,7 +34,6 @@ import {
   confirmedOf,
   eventSlots,
   formatSlot,
-  formatSlotShort,
   parseSlotKey,
   SLOT_LABELS,
   slotKey,
@@ -63,6 +62,49 @@ const BLOCK_TEXT: Record<BlockReason, string> = {
 
 /** 달력 칸 아래 글씨는 세 글자 안쪽으로 짧게 쓴다 (칸이 좁아서 길면 옆 칸과 붙는다) */
 const BLOCK_SHORT = "불가";
+
+type DraftInput = {
+  name: string;
+  relation: string;
+  station: string;
+  unavailable: string[];
+};
+const draftKey = (eventId: string) => `mp:draft:${eventId}`;
+
+/** 입력하던 내용 (이 탭에서만, 탭을 닫으면 사라진다) */
+function readDraft(eventId: string): DraftInput | null {
+  try {
+    const raw = window.sessionStorage.getItem(draftKey(eventId));
+    if (!raw) return null;
+    const value = JSON.parse(raw) as Partial<DraftInput>;
+    return {
+      name: typeof value.name === "string" ? value.name : "",
+      relation: typeof value.relation === "string" ? value.relation : "",
+      station: typeof value.station === "string" ? value.station : "",
+      unavailable: Array.isArray(value.unavailable)
+        ? value.unavailable.filter((k): k is string => typeof k === "string")
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(eventId: string, draft: DraftInput) {
+  try {
+    window.sessionStorage.setItem(draftKey(eventId), JSON.stringify(draft));
+  } catch {
+    /* 무시 */
+  }
+}
+
+function clearDraft(eventId: string) {
+  try {
+    window.sessionStorage.removeItem(draftKey(eventId));
+  } catch {
+    /* 무시 */
+  }
+}
 
 /** 이 화면에서 히스토리에 쌓은 칸 수 (다른 화면에서 막 들어왔으면 0) */
 const histDepth = () =>
@@ -239,23 +281,49 @@ export default function EventClient() {
           ? responses.find((r) => r.name === saved)
           : undefined;
       if (saved) setName(saved);
+      if (mine) setSeenBlocked(readSeenBlocked(event.id) ?? []);
+
+      // 입력하던 중에 새로고침했다면: 적던 내용과 단계를 그대로 되살린다
+      const draft = readDraft(event.id);
+      const resumed = (window.history.state as { mpView?: View } | null)
+        ?.mpView;
+      if (draft && resumed && STEPS.includes(resumed)) {
+        setName(draft.name);
+        setRelation(draft.relation);
+        setStation(draft.station);
+        setUnavailable(new Set(draft.unavailable));
+        show(resumed);
+        return;
+      }
+
       if (mine) {
         setRelation(mine.relation);
         setStation(mine.station);
         setUnavailable(new Set(mine.unavailable));
-        setSeenBlocked(readSeenBlocked(event.id) ?? []);
         settle("result");
       } else {
         // 다른 모임에서 골랐던 출발역은 다시 묻지 않는다
         setStation(readStation());
-        // 이미 확정된 모임은 결과(확정 내용)부터 보여 준다
-        settle(event.confirmed ? "result" : "name");
+        // 이미 확정된 모임, 그리고 모임장 본인은 결과부터 보여 준다
+        // (모임장에게 "모임장과 어떤 사이인가요?"부터 묻지 않는다)
+        settle(event.confirmed || result.payload.canManage ? "result" : "name");
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [id, apply, settle]);
+  }, [id, apply, settle, show]);
+
+  // 입력하는 동안 적은 내용을 이 탭에 적어 둔다 (새로고침해도 사라지지 않게)
+  useEffect(() => {
+    if (!restored.current || !STEPS.includes(view)) return;
+    writeDraft(id, {
+      name,
+      relation,
+      station,
+      unavailable: [...unavailable],
+    });
+  }, [id, view, name, relation, station, unavailable]);
 
   // 다른 사람이 응답하면 반영되도록, 화면을 보고 있는 동안 주기적으로 새로 고친다
   useEffect(() => {
@@ -521,6 +589,7 @@ export default function EventClient() {
       markBlockedSeen(); // 방금 달력에서 빠진 칸을 보고 답했으므로 따로 알리지 않는다
       await load();
       setPicked(null);
+      clearDraft(event.id);
       settle("result");
       showToast("저장했어요");
     } catch {
@@ -1006,6 +1075,21 @@ export default function EventClient() {
           .filter((key) => !seenBlocked.includes(key))
           .sort()
       : [];
+  // 알림 문구: 날짜별로 묶는다. 그날 받는 시간대가 모두 빠졌으면 날짜만 적는다.
+  const blockedByDate = new Map<string, Slot[]>();
+  for (const key of newlyBlocked) {
+    const parsed = parseSlotKey(key);
+    if (!parsed) continue;
+    blockedByDate.set(parsed.date, [
+      ...(blockedByDate.get(parsed.date) ?? []),
+      parsed.slot,
+    ]);
+  }
+  const blockedLabels = [...blockedByDate.entries()].map(([date, list]) =>
+    list.length >= slots.length
+      ? formatShort(date)
+      : `${formatShort(date)} ${SLOT_LABELS[list[0]]}`,
+  );
 
   return (
     <main className={`page with-cta${picked ? " mid-cta" : ""}`}>
@@ -1030,8 +1114,8 @@ export default function EventClient() {
             모임장 일정으로 후보에서 빠진 때가 있어요
           </p>
           <p className="alert-body">
-            {newlyBlocked.slice(0, 4).map(formatSlotShort).join(", ")}
-            {newlyBlocked.length > 4 && ` 외 ${newlyBlocked.length - 4}개`}
+            {blockedLabels.slice(0, 4).join(", ")}
+            {blockedLabels.length > 4 && ` 외 ${blockedLabels.length - 4}일`}
           </p>
           <button
             type="button"
@@ -1069,7 +1153,7 @@ export default function EventClient() {
           ) : perfectDays > 0 ? (
             <>
               <p className="summary-main">
-                {total}명 모두 되는 날이 {perfectDays}일 있어요
+                {total}명 모두 되는 날이 {perfectDays}개 있어요
               </p>
               <p className="summary-sub">달력에서 파란 날을 눌러 보세요.</p>
             </>

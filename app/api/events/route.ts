@@ -11,7 +11,7 @@ import {
   sha256,
   tooMany,
 } from "@/lib/api";
-import { buildCandidates, parseYmd } from "@/lib/dates";
+import { addDays, buildCandidates, parseYmd } from "@/lib/dates";
 import { SLOT_ORDER } from "@/lib/slots";
 import { getStore } from "@/lib/store";
 import {
@@ -53,6 +53,9 @@ export async function POST(request: Request) {
   const e = parseYmd(end);
   if (!s || !e) return fail("시작일과 종료일을 골라 주세요.");
   if (s > e) return fail("종료일이 시작일보다 빨라요.");
+  // 이미 다 지난 기간으로는 만들지 않는다 (시간대 차이를 감안해 하루 여유를 둔다)
+  if (end < addDays(new Date().toISOString().slice(0, 10), -1))
+    return fail("이미 지난 날짜예요. 기간을 다시 골라 주세요.");
   const span = Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1;
   if (span > LIMITS.rangeDaysMax)
     return fail(`기간은 최대 ${LIMITS.rangeDaysMax}일까지 잡을 수 있어요.`);

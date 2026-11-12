@@ -115,7 +115,8 @@ export function recommendMeetingPoints(origins: string[], limit = 3): MeetingPoi
   const bestMax = Math.min(...scored.map((row) => row.max));
   const isHub = (index: number) => stations[index][3].length >= 2;
   const tier = (row: { index: number; max: number }) =>
-    row.max <= bestMax + 1 && isHub(row.index) ? 0 : 1;
+    // 모두 같은 역에서 출발하면(bestMax 0) 그 역이 답이므로 환승역 우선을 적용하지 않는다
+    bestMax > 0 && row.max <= bestMax + 1 && isHub(row.index) ? 0 : 1;
   scored.sort(
     (x, y) =>
       tier(x) - tier(y) ||

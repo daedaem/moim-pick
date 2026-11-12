@@ -386,12 +386,6 @@ input[type="date"].input::-webkit-datetime-edit {
   padding: 20px 20px 16px;
 }
 
-.cta-inner.two {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
-}
-
 .cta-note,
 .cta-error {
   margin-bottom: 10px;
@@ -1280,30 +1274,6 @@ span.cell.day {
   font-weight: 800;
 }
 
-.day-editor {
-  margin-bottom: 10px;
-  padding: 12px;
-  background: var(--card);
-  border-radius: 18px;
-  box-shadow: 0 4px 20px rgba(23, 25, 28, 0.1);
-}
-
-.day-editor-date {
-  margin: 0 4px 8px;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.day-editor-slots {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.page.with-cta.tall-cta {
-  padding-bottom: 260px;
-}
-
 @media (max-width: 359px) {
   .disc {
     width: 36px;
@@ -1502,5 +1472,106 @@ span.cell.day {
   }
   .core .num {
     font-size: 13px;
+  }
+}
+
+/* ---------- 읽기 쉬운 크기, 낮은 하단 바 ---------- */
+
+.cell {
+  min-height: 64px;
+}
+
+.cell .sub {
+  min-height: 16px;
+  font-size: 12px;
+  line-height: 16px;
+  letter-spacing: -0.02em;
+}
+
+/* 고른 날의 점심·저녁을 바꾸는 한 줄 */
+.day-editor {
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 8px 8px 14px;
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(23, 25, 28, 0.1);
+}
+
+.day-editor-date {
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.day-editor .slot-btn {
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 12px;
+}
+
+/* 결과에서 누른 날의 요약 (달력 바로 아래까지 내려가지 않아도 보이게) */
+.pick-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 0;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(23, 25, 28, 0.1);
+  text-align: left;
+}
+
+.pick-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.pick-date {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.pick-info {
+  font-size: 13px;
+  color: var(--sub);
+}
+
+.pick-more {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.cta-two {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+}
+
+.page.with-cta.tall-cta,
+.page.with-cta.mid-cta {
+  padding-bottom: 210px;
+}
+
+#detail {
+  scroll-margin-top: 12px;
+}
+
+@media (max-width: 359px) {
+  .cell .sub {
+    font-size: 11px;
   }
 }

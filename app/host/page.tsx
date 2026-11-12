@@ -167,7 +167,7 @@ export default function HostPage() {
       );
       cells.set(date, {
         halves,
-        sub: "모임 확정",
+        sub: "확정",
         subTone: "ink",
         label: `${fixedEvent.title} 확정`,
         disabled: true,
@@ -181,13 +181,18 @@ export default function HostPage() {
     if (off.length === 2)
       cells.set(date, {
         halves,
-        sub: "안 돼요",
+        sub: "안 됨",
         subTone: "red",
         label: "하루 종일 안 됨",
       });
     else if (off.length === 1) {
-      const sub = `${SLOT_LABELS[off[0]]} 안 됨`;
-      cells.set(date, { halves, sub, subTone: "red", label: sub });
+      const free = SLOT_ORDER.find((slot) => slot !== off[0])!;
+      cells.set(date, {
+        halves,
+        sub: `${SLOT_LABELS[free]}만`,
+        subTone: "ink",
+        label: `${SLOT_LABELS[off[0]]} 안 됨`,
+      });
     } else cells.set(date, { halves, sub: "", label: "가능" });
   }
   const blockedCount = [...blocks].filter(

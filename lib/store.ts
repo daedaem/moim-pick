@@ -23,7 +23,11 @@ type StoredResponse = {
   updatedAt: number;
   /** 이 응답을 고칠 수 있는 토큰의 해시 (응답한 기기만 토큰을 안다) */
   editHash?: string;
+  /** 응답한 기기(브라우저)를 나타내는 토큰의 해시. 한 기기에서 여러 번 응답하는 것을 막는 데 쓴다 */
+  deviceHash?: string;
 };
+
+export type ResponseMeta = { editHash: string; deviceHash: string };
 
 interface Store {
   createEvent(event: MoimEvent): Promise<void>;
@@ -37,12 +41,14 @@ interface Store {
   listIndexed(limit: number): Promise<MoimEvent[]>;
   listResponses(id: string): Promise<MoimResponse[]>;
   countResponses(id: string): Promise<number>;
-  /** 응답이 없으면 null. 있으면 수정 토큰 해시(예전 응답은 빈 문자열) */
-  getEditHash(id: string, name: string): Promise<string | null>;
+  /** 응답이 없으면 null. 있으면 수정 토큰 해시와 기기 해시(예전 응답은 빈 문자열) */
+  getResponseMeta(id: string, name: string): Promise<ResponseMeta | null>;
+  /** 이 기기로 이미 응답한 이름 (없으면 null) */
+  findNameByDevice(id: string, deviceHash: string): Promise<string | null>;
   putResponse(
     id: string,
     response: MoimResponse,
-    editHash: string,
+    meta: ResponseMeta,
   ): Promise<void>;
   deleteResponse(id: string, name: string): Promise<void>;
   getHost(hostHash: string): Promise<HostRecord | null>;
@@ -150,13 +156,26 @@ function redisStore(redis: Redis): Store {
     async countResponses(id) {
       return await redis.hlen(responsesKey(id));
     },
-    async getEditHash(id, name) {
+    async getResponseMeta(id, name) {
       const value = await redis.hget<StoredResponse>(responsesKey(id), name);
-      return value ? (value.editHash ?? "") : null;
+      return value
+        ? { editHash: value.editHash ?? "", deviceHash: value.deviceHash ?? "" }
+        : null;
     },
-    async putResponse(id, response, editHash) {
+    async findNameByDevice(id, deviceHash) {
+      const all = await redis.hgetall<Record<string, StoredResponse>>(
+        responsesKey(id),
+      );
+      if (!all) return null;
+      const hit = Object.entries(all).find(
+        ([, value]) => value?.deviceHash === deviceHash,
+      );
+      return hit ? hit[0] : null;
+    },
+    async putResponse(id, response, meta) {
       const value: StoredResponse = {
-        editHash,
+        editHash: meta.editHash,
+        deviceHash: meta.deviceHash,
         relation: response.relation,
         station: response.station,
         unavailable: response.unavailable,
@@ -265,13 +284,21 @@ function memoryStore(): Store {
     async countResponses(id) {
       return bucket(id).size;
     },
-    async getEditHash(id, name) {
+    async getResponseMeta(id, name) {
       const value = bucket(id).get(name);
-      return value ? (value.editHash ?? "") : null;
+      return value
+        ? { editHash: value.editHash ?? "", deviceHash: value.deviceHash ?? "" }
+        : null;
     },
-    async putResponse(id, response, editHash) {
+    async findNameByDevice(id, deviceHash) {
+      for (const [name, value] of bucket(id))
+        if (value.deviceHash === deviceHash) return name;
+      return null;
+    },
+    async putResponse(id, response, meta) {
       bucket(id).set(response.name, {
-        editHash,
+        editHash: meta.editHash,
+        deviceHash: meta.deviceHash,
         relation: response.relation,
         station: response.station,
         unavailable: response.unavailable,

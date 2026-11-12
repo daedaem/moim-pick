@@ -68,21 +68,32 @@ export async function PUT(request: Request, ctx: Ctx) {
       return fail("요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요.", 429);
     }
 
-    const currentHash = await store.getEditHash(id, name);
-    let editHash = currentHash ?? "";
+    const current = await store.getResponseMeta(id, name);
+    const deviceToken = request.headers.get("x-device-token") ?? "";
+    const deviceHash = /^[0-9a-f]{20,64}$/.test(deviceToken) ? await sha256(deviceToken) : "";
+    let meta = current ?? { editHash: "", deviceHash };
     let editToken: string | undefined;
 
-    if (currentHash === null) {
+    if (current === null) {
+      const manage = await canManage(request, event);
+      // 한 기기에서는 한 번만 응답한다 (모임장은 다른 사람 대신 입력할 수 있다)
+      if (deviceHash && !manage) {
+        const already = await store.findNameByDevice(id, deviceHash);
+        if (already) {
+          return fail(
+            `이 기기에서는 이미 '${already}' 이름으로 응답했어요. 그 응답을 고쳐 주세요. 다른 사람이라면 본인 휴대폰에서 응답해 주세요.`,
+            409,
+          );
+        }
+      }
       if ((await store.countResponses(id)) >= LIMITS.participantsMax) {
-        return fail(
-          `한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`,
-          409,
-        );
+        return fail(`한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`, 409);
       }
       // 새 응답: 이 기기만 아는 수정 토큰을 발급한다
       editToken = newAdminToken();
-      editHash = await sha256(editToken);
-    } else if (!(await mayChange(request, event, currentHash))) {
+      // 모임장이 대신 입력한 응답은 모임장 기기에 묶지 않는다
+      meta = { editHash: await sha256(editToken), deviceHash: manage ? "" : deviceHash };
+    } else if (!(await mayChange(request, event, current.editHash))) {
       return fail(
         "이미 같은 이름으로 응답한 사람이 있어요. 다른 사람이라면 이름을 조금 다르게 적어 주세요. 본인이라면 응답했던 기기에서 고칠 수 있어요.",
         409,
@@ -96,7 +107,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       unavailable,
       updatedAt: Date.now(),
     };
-    await store.putResponse(id, response, editHash);
+    await store.putResponse(id, response, meta);
     return json({ response, editToken });
   } catch (error) {
     return handleError(error);
@@ -114,9 +125,9 @@ export async function DELETE(request: Request, ctx: Ctx) {
     const store = getStore();
     const event = await store.getEvent(id);
     if (!event) return fail("모임을 찾을 수 없어요.", 404);
-    const currentHash = await store.getEditHash(id, name);
-    if (currentHash === null) return json({ ok: true });
-    if (!(await mayChange(request, event, currentHash))) {
+    const current = await store.getResponseMeta(id, name);
+    if (current === null) return json({ ok: true });
+    if (!(await mayChange(request, event, current.editHash))) {
       return fail("이 응답은 응답한 기기나 주최자만 지울 수 있어요.", 403);
     }
     await store.deleteResponse(id, name);

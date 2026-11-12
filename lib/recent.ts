@@ -207,3 +207,20 @@ export function setFlag(key: string) {
     /* 무시 */
   }
 }
+
+/** 이 브라우저를 나타내는 값. 한 기기에서 한 모임에 여러 번 응답하는 것을 막는 데 쓴다. */
+export function deviceToken(): string {
+  try {
+    const existing = window.localStorage.getItem("mp:device");
+    if (existing) return existing;
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const token = Array.from(bytes, (b) =>
+      b.toString(16).padStart(2, "0"),
+    ).join("");
+    window.localStorage.setItem("mp:device", token);
+    return token;
+  } catch {
+    return "";
+  }
+}

@@ -11,6 +11,7 @@ import DayEditor from "@/app/components/DayEditor";
 import StationPicker from "@/app/components/StationPicker";
 import { formatKorean, formatShort } from "@/lib/dates";
 import {
+  deviceToken,
   forgetEvent,
   readAdminToken,
   readEditToken,
@@ -59,6 +60,9 @@ const BLOCK_TEXT: Record<BlockReason, string> = {
   busy: "모임장 불가",
   fixed: "다른 모임",
 };
+
+/** 달력 칸 아래 글씨는 세 글자 안쪽으로 짧게 쓴다 (칸이 좁아서 길면 옆 칸과 붙는다) */
+const BLOCK_SHORT = "불가";
 
 const cleanName = (value: string) => value.replace(/\s+/g, " ").trim();
 
@@ -261,25 +265,28 @@ export default function EventClient() {
         });
       } else if (open.length === 0) {
         const fixed = keys.some((k) => blocked[k.key] === "fixed");
-        const sub = BLOCK_TEXT[fixed ? "fixed" : "busy"];
-        map.set(date, { halves, sub, label: `${sub}, 고를 수 없음` });
+        const reason = BLOCK_TEXT[fixed ? "fixed" : "busy"];
+        map.set(date, {
+          halves,
+          sub: BLOCK_SHORT,
+          label: `${reason}, 고를 수 없음`,
+        });
       } else if (total === 0) {
         map.set(date, { halves, sub: "", label: "" });
       } else if (perfect.length > 0) {
-        const sub =
-          perfect.length === keys.length
-            ? "모두 가능"
-            : twoSlots
-              ? `${SLOT_LABELS[perfect[0].slot]} 가능`
-              : "모두 가능";
-        map.set(date, { halves, sub, subTone: "blue", label: sub });
+        const onlyOne = twoSlots && perfect.length < keys.length;
+        const sub = onlyOne ? SLOT_LABELS[perfect[0].slot] : "모두";
+        const label = onlyOne
+          ? `${SLOT_LABELS[perfect[0].slot]} 모두 가능`
+          : "모두 가능";
+        map.set(date, { halves, sub, subTone: "blue", label });
       } else {
         const least = Math.min(
           ...open.map((k) => missingByKey.get(k.key)?.length ?? 0),
         );
         map.set(date, {
           halves,
-          sub: `${least}명 불가`,
+          sub: `불가 ${least}`,
           label: `${least}명 불가`,
         });
       }
@@ -367,6 +374,16 @@ export default function EventClient() {
   function submitName() {
     if (!trimmedName) {
       setFormError("이름을 입력해 주세요.");
+      return;
+    }
+    // 이 기기로 이미 응답했다면 다른 이름으로 또 응답하지 못하게 한다 (모임장은 대신 입력 가능)
+    const own = event
+      ? responses.find((r) => readEditToken(event.id, r.name))
+      : undefined;
+    if (own && own.name !== trimmedName && !manage) {
+      setFormError(
+        `이 기기에서는 이미 '${own.name}' 이름으로 응답했어요. 그 이름으로 들어가서 고쳐 주세요.`,
+      );
       return;
     }
     if (existing && !canEdit(existing.name)) {
@@ -594,17 +611,17 @@ export default function EventClient() {
       );
       if (open.length === 0) {
         const fixed = keys.some((k) => blocked[k.key] === "fixed");
-        const sub = BLOCK_TEXT[fixed ? "fixed" : "busy"];
+        const reason = BLOCK_TEXT[fixed ? "fixed" : "busy"];
         checkCells.set(date, {
           halves,
-          sub,
-          label: `${sub}, 고를 수 없음`,
+          sub: BLOCK_SHORT,
+          label: `${reason}, 고를 수 없음`,
           disabled: true,
         });
       } else if (ok.length === 0) {
         checkCells.set(date, {
           halves,
-          sub: "안 돼요",
+          sub: "안 됨",
           subTone: "red",
           label: "안 되는 날",
         });
@@ -615,8 +632,13 @@ export default function EventClient() {
           label: "되는 날",
         });
       } else {
-        const sub = `${SLOT_LABELS[ok[0].slot]}만 가능`;
-        checkCells.set(date, { halves, sub, subTone: "ink", label: sub });
+        const sub = `${SLOT_LABELS[ok[0].slot]}만`;
+        checkCells.set(date, {
+          halves,
+          sub,
+          subTone: "ink",
+          label: `${sub} 가능`,
+        });
       }
     }
 
@@ -806,7 +828,7 @@ export default function EventClient() {
                 onToggle={toggle}
               />
             )}
-            {view === "dates" && !formError && (
+            {view === "dates" && !formError && !(twoSlots && editDate) && (
               <p className="cta-note" aria-live="polite">
                 {twoSlots ? (
                   <>
@@ -868,9 +890,11 @@ export default function EventClient() {
   }
 
   // ---------- 결과 ----------
-  const mine = responses.find(
-    (r) => r.name === trimmedName && readEditToken(event.id, r.name),
-  );
+  // 이 기기로 응답한 내 응답 (이름 칸에 다른 이름을 적어 둔 상태여도 찾는다)
+  const mine =
+    responses.find(
+      (r) => r.name === trimmedName && readEditToken(event.id, r.name),
+    ) ?? responses.find((r) => readEditToken(event.id, r.name));
   const best = ranking[0];
   const bestSlot = best ? parseSlotKey(best.key) : null;
   const confirmedText = confirmed
@@ -889,7 +913,7 @@ export default function EventClient() {
       : [];
 
   return (
-    <main className="page with-cta">
+    <main className={`page with-cta${picked ? " mid-cta" : ""}`}>
       <p className="brand">
         <Link href="/">모임픽</Link>
       </p>
@@ -985,11 +1009,14 @@ export default function EventClient() {
               모임장 일정으로 빠진 날
             </span>
           )}
+          {total > 0 && (
+            <span className="legend-item">불가 뒤 숫자는 안 되는 사람 수</span>
+          )}
         </p>
       </div>
 
       {focusDate && (
-        <section className="card detail" aria-live="polite">
+        <section className="card detail" id="detail" aria-live="polite">
           <h2 className="detail-date">{formatKorean(focusDate)}</h2>
           {slots.map((slot) => {
             const key = slotKey(focusDate, slot);
@@ -1329,17 +1356,58 @@ export default function EventClient() {
       </p>
 
       <div className="cta-bar">
-        <div className="cta-inner two">
-          <button type="button" className="btn soft" onClick={shareLink}>
-            초대하기
-          </button>
-          <button
-            type="button"
-            className="btn primary"
-            onClick={() => (mine ? startEdit(mine.name) : go("name"))}
-          >
-            {mine ? "내 일정 고치기" : "내 일정 표시하기"}
-          </button>
+        <div className="cta-inner">
+          {picked && focusDate === picked && (
+            <button
+              type="button"
+              className="pick-bar"
+              onClick={() =>
+                document.getElementById("detail")?.scrollIntoView({
+                  block: "start",
+                  behavior: window.matchMedia(
+                    "(prefers-reduced-motion: reduce)",
+                  ).matches
+                    ? "auto"
+                    : "smooth",
+                })
+              }
+            >
+              <span className="pick-text">
+                <span className="pick-date">{formatKorean(picked)}</span>
+                <span className="pick-info">
+                  {slots
+                    .map((slot) => {
+                      const key = slotKey(picked, slot);
+                      const prefix = twoSlots ? `${SLOT_LABELS[slot]} ` : "";
+                      if (blocked[key])
+                        return `${prefix}${BLOCK_TEXT[blocked[key]]}`;
+                      if (total === 0) return `${prefix}응답 없음`;
+                      const missing = missingByKey.get(key)?.length ?? 0;
+                      return missing === 0
+                        ? `${prefix}${total}명 모두 가능`
+                        : `${prefix}${total}명 중 ${total - missing}명 가능`;
+                    })
+                    .join(", ")}
+                </span>
+              </span>
+              <span className="pick-more">
+                자세히
+                <span className="row-chevron" aria-hidden="true" />
+              </span>
+            </button>
+          )}
+          <div className="cta-two">
+            <button type="button" className="btn soft" onClick={shareLink}>
+              초대하기
+            </button>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => (mine ? startEdit(mine.name) : go("name"))}
+            >
+              {mine ? "내 일정 고치기" : "내 일정 표시하기"}
+            </button>
+          </div>
         </div>
       </div>
       {toastNode}
@@ -1368,6 +1436,7 @@ function tokenHeaders(eventId: string): Record<string, string> {
     "Content-Type": "application/json",
     "x-admin-token": readAdminToken(eventId),
     "x-host-token": readHostToken(),
+    "x-device-token": deviceToken(),
   };
 }
 

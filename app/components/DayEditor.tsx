@@ -1,6 +1,6 @@
 "use client";
 
-import { formatKorean } from "@/lib/dates";
+import { formatKorean, parseYmd, WEEKDAY_LABELS } from "@/lib/dates";
 import { SLOT_LABELS, slotKey } from "@/lib/slots";
 import type { Slot } from "@/lib/types";
 
@@ -26,41 +26,46 @@ export default function DayEditor({
   onToggle,
 }: Props) {
   return (
-    <div className="day-editor">
-      <p className="day-editor-date">{formatKorean(date)}</p>
-      <div className="day-editor-slots">
-        {slots.map((slot) => {
-          const key = slotKey(date, slot);
-          const reason = blocked?.get(key);
-          if (reason) {
-            return (
-              <span
-                key={slot}
-                className="slot-btn locked"
-                role="img"
-                aria-label={`${SLOT_LABELS[slot]} ${reason}, 고를 수 없음`}
-              >
-                <span className="slot-name">{SLOT_LABELS[slot]}</span>
-                <span className="slot-state">{reason}</span>
-              </span>
-            );
-          }
-          const no = off.has(key);
+    <div
+      className="day-editor"
+      role="group"
+      aria-label={`${formatKorean(date)} 점심·저녁`}
+    >
+      <span className="day-editor-date" aria-hidden="true">
+        {parseYmd(date)!.getUTCDate()}일 (
+        {WEEKDAY_LABELS[parseYmd(date)!.getUTCDay()]})
+      </span>
+      {slots.map((slot) => {
+        const key = slotKey(date, slot);
+        const reason = blocked?.get(key);
+        if (reason) {
           return (
-            <button
-              type="button"
+            <span
               key={slot}
-              className={`slot-btn${no ? " no" : ""}`}
-              aria-pressed={no}
-              aria-label={`${SLOT_LABELS[slot]} ${no ? "안 됨" : "가능"}`}
-              onClick={() => onToggle(key)}
+              className="slot-btn locked"
+              role="img"
+              aria-label={`${SLOT_LABELS[slot]} ${reason}, 고를 수 없음`}
             >
               <span className="slot-name">{SLOT_LABELS[slot]}</span>
-              <span className="slot-state">{no ? "안 돼요" : "가능"}</span>
-            </button>
+              <span className="slot-state">{reason}</span>
+            </span>
           );
-        })}
-      </div>
+        }
+        const no = off.has(key);
+        return (
+          <button
+            type="button"
+            key={slot}
+            className={`slot-btn${no ? " no" : ""}`}
+            aria-pressed={no}
+            aria-label={`${SLOT_LABELS[slot]} ${no ? "안 됨" : "가능"}`}
+            onClick={() => onToggle(key)}
+          >
+            <span className="slot-name">{SLOT_LABELS[slot]}</span>
+            <span className="slot-state">{no ? "안 됨" : "가능"}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

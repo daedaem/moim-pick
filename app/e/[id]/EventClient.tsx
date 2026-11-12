@@ -128,19 +128,22 @@ export default function EventClient() {
 
     fetchEvent(id).then(async (first) => {
       let result = first;
-      // 이 기기에서 만든 모임인데 모임장 계정에 아직 안 묶였으면 묶는다
+      // 이 기기에서 만든 모임을 지금 이 기기의 모임장에게 묶는다.
+      // 모임장 링크로 다른 모임장이 된 뒤에도 다시 묶이도록, 모임장별로 한 번씩 한다.
+      const hostToken = readHostToken();
+      const claimFlag = `mp:claimed:${id}:${hostToken.slice(0, 8)}`;
       if (
         result.ok &&
         readAdminToken(id) &&
-        readHostToken() &&
-        !readFlag(`mp:claimed:${id}`)
+        hostToken &&
+        !readFlag(claimFlag)
       ) {
         await fetch(`/api/events/${id}`, {
           method: "PATCH",
           headers: tokenHeaders(id),
           body: JSON.stringify({ claim: true }),
         }).catch(() => null);
-        setFlag(`mp:claimed:${id}`);
+        setFlag(claimFlag);
         result = await fetchEvent(id);
       }
       if (cancelled) return;

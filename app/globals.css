@@ -10,7 +10,7 @@
   --field: #f3f5f7;
   --blue: #2f6fed;
   --blue-soft: #e9f1ff;
-  --red: #e5484d;
+  --red: #dd3b42;
   --red-soft: #fdecec;
   --radius: 20px;
   --font:
@@ -1263,85 +1263,8 @@ a.back {
   margin: 10px 0 0;
 }
 
-/* ---------- 날짜 원: 하나 또는 위(점심)·아래(저녁) 반원 ---------- */
-
-.cell.day {
-  cursor: pointer;
-}
-
 span.cell.day {
   cursor: default;
-}
-
-.disc {
-  position: relative;
-  display: block;
-  width: 42px;
-  height: 42px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: var(--card);
-}
-
-.half {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 위 반쪽과 아래 반쪽. 숫자는 반쪽마다 제 색으로 한 번씩 그려져서 경계에서 색이 갈린다 */
-.disc.split .half:first-child {
-  clip-path: inset(0 0 50% 0);
-}
-
-.disc.split .half:last-child {
-  clip-path: inset(50% 0 0 0);
-}
-
-.half .num {
-  width: auto;
-  height: auto;
-  border-radius: 0;
-  background: none;
-}
-
-.half.ok {
-  background: var(--blue-soft);
-  color: var(--blue);
-}
-
-.half.no {
-  background: var(--red);
-  color: #fff;
-}
-
-.half.locked {
-  background: repeating-linear-gradient(135deg, #e9ecef 0 5px, #dfe3e8 5px 10px);
-  color: #9aa2ac;
-}
-
-.half.perfect {
-  background: var(--blue);
-  color: #fff;
-}
-
-.half.plain {
-  color: var(--sub);
-}
-
-.disc.split .half.plain {
-  background: var(--field);
-}
-
-.half.confirmed {
-  background: var(--ink);
-  color: #fff;
-}
-
-.cell.day.selected .disc {
-  box-shadow: 0 0 0 2.5px var(--ink);
 }
 
 .cell .sub.blue {
@@ -1355,32 +1278,6 @@ span.cell.day {
 .cell .sub.ink {
   color: var(--ink);
   font-weight: 800;
-}
-
-.half-legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: var(--sub);
-}
-
-.mini-split {
-  flex: none;
-  display: grid;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  overflow: hidden;
-}
-
-.mini-split i:first-child {
-  background: var(--blue);
-}
-
-.mini-split i:last-child {
-  background: var(--red);
 }
 
 .day-editor {
@@ -1411,5 +1308,199 @@ span.cell.day {
   .disc {
     width: 36px;
     height: 36px;
+  }
+}
+
+/* ---------- 날짜 원 ----------
+   하루가 한 가지 상태면 색을 채운 원, 점심·저녁이 다르면 고리(위 = 점심, 아래 = 저녁).
+   숫자는 늘 한 가지 바탕 위에만 올려서 잘 읽히게 한다.
+   빨강은 입력 화면의 "안 돼요", 파랑은 결과 화면의 "모두 가능"에만 쓰고 한 원 안에 같이 쓰지 않는다. */
+
+.disc {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.disc .num {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.disc.single.ok {
+  background: var(--field);
+  color: var(--ink);
+}
+
+.disc.single.no {
+  background: var(--red);
+  color: #fff;
+}
+
+.disc.single.locked {
+  background: #e6e9ed;
+  color: #6b7480;
+}
+
+.disc.single.perfect {
+  background: var(--blue);
+  color: #fff;
+}
+
+.disc.single.plain {
+  color: #333d4b;
+}
+
+.disc.single.confirmed {
+  background: var(--ink);
+  color: #fff;
+}
+
+.arc {
+  position: absolute;
+  inset: 0;
+}
+
+.arc.top {
+  clip-path: inset(0 0 calc(50% + 1px) 0);
+}
+
+.arc.bottom {
+  clip-path: inset(calc(50% + 1px) 0 0 0);
+}
+
+.arc.ok,
+.arc.plain {
+  background: #d5dbe2;
+}
+
+.arc.no {
+  background: var(--red);
+}
+
+.arc.perfect {
+  background: var(--blue);
+}
+
+.arc.confirmed {
+  background: var(--ink);
+}
+
+.arc.locked {
+  background: repeating-linear-gradient(135deg, #eef0f3 0 3px, #c3c9d1 3px 6px);
+}
+
+.core {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.core .num {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.cell.day.selected .disc {
+  box-shadow: 0 0 0 2.5px var(--ink);
+}
+
+.cell .sub.ink {
+  font-weight: 700;
+}
+
+.half-legend {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--sub);
+}
+
+.mini-ring {
+  flex: none;
+  position: relative;
+  display: grid;
+  gap: 1.5px;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.mini-ring i {
+  background: #d5dbe2;
+}
+
+.mini-ring i.no {
+  background: var(--red);
+}
+
+.mini-ring i.perfect {
+  background: var(--blue);
+}
+
+.mini-ring::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--card);
+}
+
+/* 점심·저녁 큰 버튼: 되는 쪽은 차분하게, 안 되는 쪽만 빨갛게 */
+.slot-btn {
+  background: var(--field);
+  color: var(--ink);
+}
+
+.slot-btn .slot-state {
+  color: var(--muted);
+}
+
+.slot-btn.no .slot-state {
+  color: #fff;
+}
+
+.slot-btn.no .slot-name {
+  text-decoration: none;
+}
+
+.slot-btn.locked .slot-state {
+  color: inherit;
+}
+
+@media (max-width: 359px) {
+  .disc {
+    width: 36px;
+    height: 36px;
+  }
+  .disc .num {
+    font-size: 15px;
+  }
+  .core {
+    width: 24px;
+    height: 24px;
+  }
+  .core .num {
+    font-size: 13px;
   }
 }

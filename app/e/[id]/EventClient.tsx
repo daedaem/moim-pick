@@ -612,12 +612,11 @@ export default function EventClient() {
         checkCells.set(date, {
           halves,
           sub: "가능",
-          subTone: "blue",
           label: "되는 날",
         });
       } else {
         const sub = `${SLOT_LABELS[ok[0].slot]}만 가능`;
-        checkCells.set(date, { halves, sub, subTone: "blue", label: sub });
+        checkCells.set(date, { halves, sub, subTone: "ink", label: sub });
       }
     }
 
@@ -749,7 +748,7 @@ export default function EventClient() {
               </button>
             </div>
             <div className="card">
-              {twoSlots && <HalfLegend />}
+              {twoSlots && <HalfLegend tone="no" />}
               <Calendar
                 dates={dates}
                 cells={checkCells}
@@ -968,7 +967,7 @@ export default function EventClient() {
       )}
 
       <div className="card">
-        {twoSlots && <HalfLegend />}
+        {twoSlots && <HalfLegend tone="perfect" />}
         <Calendar
           dates={dates}
           cells={cells}
@@ -1348,15 +1347,17 @@ export default function EventClient() {
   );
 }
 
-/** 반으로 나뉜 원 읽는 법 */
-function HalfLegend() {
+/** 고리(점심·저녁이 다른 날) 읽는 법 */
+function HalfLegend({ tone }: { tone: "no" | "perfect" }) {
   return (
     <p className="half-legend">
-      <span className="mini-split" aria-hidden="true">
-        <i />
+      <span className="mini-ring" aria-hidden="true">
+        <i className={tone} />
         <i />
       </span>
-      원의 위쪽은 점심, 아래쪽은 저녁이에요.
+      {tone === "no"
+        ? "점심과 저녁이 다르면 고리로 보여요. 위쪽이 점심, 아래쪽이 저녁이고 빨간 쪽이 안 되는 시간이에요."
+        : "점심과 저녁이 다르면 고리로 보여요. 위쪽이 점심, 아래쪽이 저녁이고 파란 쪽이 모두 되는 시간이에요."}
     </p>
   );
 }

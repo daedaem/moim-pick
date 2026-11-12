@@ -259,12 +259,12 @@ export default function HostPage() {
             <h2 className="section-title">안 되는 시간</h2>
             <div className="card">
               <p className="half-legend">
-                <span className="mini-split" aria-hidden="true">
-                  <i />
+                <span className="mini-ring" aria-hidden="true">
+                  <i className="no" />
                   <i />
                 </span>
-                원의 위쪽은 점심, 아래쪽은 저녁이에요. 날짜를 누르면 하루 전체가
-                바뀌어요.
+                날짜를 누르면 하루 전체가 바뀌어요. 점심과 저녁이 다르면 고리로
+                보이고, 위쪽이 점심, 아래쪽이 저녁이에요.
               </p>
               <Calendar
                 dates={dates}

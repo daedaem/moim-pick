@@ -79,24 +79,30 @@ export default function Calendar({ dates, cells, selected, onSelect }: Props) {
                 );
               }
 
-              // 점심·저녁 상태가 같으면 원 하나로 그린다. 다를 때만 위아래로 나눈다.
               const halves = cell.halves.every(
                 (tone) => tone === cell.halves[0],
               )
                 ? [cell.halves[0]]
                 : cell.halves;
-              const disc = (
-                <span
-                  className={`disc ${halves.length === 2 ? "split" : "single"}`}
-                  aria-hidden="true"
-                >
-                  {halves.map((tone, i) => (
-                    <span className={`half ${tone}`} key={i}>
+              // 하루가 한 가지 상태면 색을 채운 원, 점심·저녁이 다르면 고리로 그린다.
+              // 고리는 위쪽 반이 점심, 아래쪽 반이 저녁이고, 숫자는 항상 흰 바탕 위에 둬서 잘 읽히게 한다.
+              const disc =
+                halves.length === 2 ? (
+                  <span className="disc split" aria-hidden="true">
+                    <span className={`arc top ${halves[0]}`} />
+                    <span className={`arc bottom ${halves[1]}`} />
+                    <span className="core">
                       <span className="num">{day}</span>
                     </span>
-                  ))}
-                </span>
-              );
+                  </span>
+                ) : (
+                  <span
+                    className={`disc single ${halves[0]}`}
+                    aria-hidden="true"
+                  >
+                    <span className="num">{day}</span>
+                  </span>
+                );
               const sub = (
                 <span className={`sub ${cell.subTone ?? "muted"}`}>
                   {cell.sub}

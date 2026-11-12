@@ -107,3 +107,20 @@ export function forgetEvent(eventId: string) {
     /* 무시 */
   }
 }
+
+export function readEditToken(eventId: string, name: string): string {
+  try {
+    return window.localStorage.getItem(`mp:edit:${eventId}:${name}`) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function rememberEditToken(eventId: string, name: string, token: string) {
+  try {
+    window.localStorage.setItem(`mp:edit:${eventId}:${name}`, token);
+  } catch {
+    /* 무시 */
+  }
+}
+

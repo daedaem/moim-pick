@@ -959,3 +959,43 @@ input[type="date"].input {
     font-size: 23px;
   }
 }
+
+/* ---------- 확정, 내 응답 ---------- */
+
+.summary[hidden] {
+  display: none;
+}
+
+.summary.confirmed .summary-main {
+  margin-top: 2px;
+  font-size: 22px;
+}
+
+.summary.confirmed .btn {
+  margin-top: 14px;
+}
+
+.btn.white {
+  background: #fff;
+  color: var(--blue);
+}
+
+.confirm-btn {
+  margin-top: 16px;
+}
+
+.row-button:disabled {
+  cursor: default;
+  color: inherit;
+}
+
+.me {
+  margin-left: 6px;
+  padding: 2px 7px;
+  background: var(--blue-soft);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--blue);
+  vertical-align: 1px;
+}

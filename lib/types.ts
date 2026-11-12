@@ -5,6 +5,8 @@ export type MoimEvent = {
   /** 후보 날짜 (YYYY-MM-DD, 오름차순) */
   dates: string[];
   createdAt: number;
+  /** 주최자가 확정한 날짜와 장소 */
+  confirmed?: { date: string; station: string } | null;
   /** 관리용 토큰의 SHA-256 해시. 서버에만 두고 응답으로 내보내지 않는다 */
   adminHash?: string;
 };

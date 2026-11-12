@@ -21,6 +21,8 @@ type StoredResponse = {
   station?: string;
   unavailable: string[];
   updatedAt: number;
+  /** 이 응답을 고칠 수 있는 토큰의 해시 (응답한 기기만 토큰을 안다) */
+  editHash?: string;
 };
 
 interface Store {
@@ -29,8 +31,9 @@ interface Store {
   deleteEvent(id: string): Promise<void>;
   listResponses(id: string): Promise<MoimResponse[]>;
   countResponses(id: string): Promise<number>;
-  hasResponse(id: string, name: string): Promise<boolean>;
-  putResponse(id: string, response: MoimResponse): Promise<void>;
+  /** 응답이 없으면 null. 있으면 수정 토큰 해시(예전 응답은 빈 문자열) */
+  getEditHash(id: string, name: string): Promise<string | null>;
+  putResponse(id: string, response: MoimResponse, editHash: string): Promise<void>;
   deleteResponse(id: string, name: string): Promise<void>;
 }
 
@@ -96,11 +99,13 @@ function redisStore(redis: Redis): Store {
     async countResponses(id) {
       return await redis.hlen(responsesKey(id));
     },
-    async hasResponse(id, name) {
-      return (await redis.hexists(responsesKey(id), name)) === 1;
+    async getEditHash(id, name) {
+      const value = await redis.hget<StoredResponse>(responsesKey(id), name);
+      return value ? (value.editHash ?? "") : null;
     },
-    async putResponse(id, response) {
+    async putResponse(id, response, editHash) {
       const value: StoredResponse = {
+        editHash,
         relation: response.relation,
         station: response.station,
         unavailable: response.unavailable,
@@ -156,11 +161,13 @@ function memoryStore(): Store {
     async countResponses(id) {
       return bucket(id).size;
     },
-    async hasResponse(id, name) {
-      return bucket(id).has(name);
+    async getEditHash(id, name) {
+      const value = bucket(id).get(name);
+      return value ? (value.editHash ?? "") : null;
     },
-    async putResponse(id, response) {
+    async putResponse(id, response, editHash) {
       bucket(id).set(response.name, {
+        editHash,
         relation: response.relation,
         station: response.station,
         unavailable: response.unavailable,

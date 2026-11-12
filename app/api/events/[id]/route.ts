@@ -1,4 +1,13 @@
-import { EVENT_ID_PATTERN, fail, handleError, json, publicEvent, sha256 } from "@/lib/api";
+import {
+  EVENT_ID_PATTERN,
+  fail,
+  handleError,
+  json,
+  publicEvent,
+  readBody,
+  sha256,
+} from "@/lib/api";
+import { isStation } from "@/lib/stations";
 import { getStore } from "@/lib/store";
 import type { EventPayload } from "@/lib/types";
 
@@ -33,6 +42,37 @@ export async function DELETE(request: Request, ctx: RouteContext<"/api/events/[i
     }
     await store.deleteEvent(id);
     return json({ ok: true });
+  } catch (error) {
+    return handleError(error);
+  }
+}
+
+// 날짜·장소 확정 또는 확정 취소 (주최자만)
+export async function PATCH(request: Request, ctx: RouteContext<"/api/events/[id]">) {
+  const { id } = await ctx.params;
+  if (!EVENT_ID_PATTERN.test(id)) return fail("모임을 찾을 수 없어요.", 404);
+  const token = request.headers.get("x-admin-token") ?? "";
+  const body = await readBody(request);
+  if (!body) return fail("요청 형식이 올바르지 않아요.");
+  try {
+    const store = getStore();
+    const event = await store.getEvent(id);
+    if (!event) return fail("모임을 찾을 수 없어요.", 404);
+    if (!event.adminHash || !token || (await sha256(token)) !== event.adminHash) {
+      return fail("주최자만 확정할 수 있어요.", 403);
+    }
+    if (body.confirmed === null) {
+      event.confirmed = null;
+    } else {
+      const c = body.confirmed as { date?: unknown; station?: unknown } | undefined;
+      const date = typeof c?.date === "string" ? c.date : "";
+      const station = typeof c?.station === "string" ? c.station : "";
+      if (!event.dates.includes(date)) return fail("후보에 있는 날짜만 확정할 수 있어요.");
+      if (station && !isStation(station)) return fail("목록에 있는 역만 고를 수 있어요.");
+      event.confirmed = { date, station };
+    }
+    await store.createEvent(event); // 같은 키에 덮어쓴다
+    return json({ event: publicEvent(event) });
   } catch (error) {
     return handleError(error);
   }

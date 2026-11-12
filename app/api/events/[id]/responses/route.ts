@@ -1,7 +1,16 @@
-import { cleanLine, EVENT_ID_PATTERN, fail, handleError, json, readBody } from "@/lib/api";
-import { getStore } from "@/lib/store";
+import {
+  cleanLine,
+  EVENT_ID_PATTERN,
+  fail,
+  handleError,
+  json,
+  newAdminToken,
+  readBody,
+  sha256,
+} from "@/lib/api";
 import { isStation } from "@/lib/stations";
-import { LIMITS, RELATIONS } from "@/lib/types";
+import { getStore } from "@/lib/store";
+import { LIMITS, RELATIONS, type MoimEvent } from "@/lib/types";
 
 type Ctx = RouteContext<"/api/events/[id]/responses">;
 
@@ -11,7 +20,19 @@ function validName(value: unknown): string | null {
   return name;
 }
 
-// 내 응답 저장 (같은 이름이면 덮어씀)
+/**
+ * 이미 있는 응답을 고치거나 지울 수 있는지 확인한다.
+ * 응답한 기기(수정 토큰)이거나 주최자(관리 토큰)여야 한다.
+ * 수정 토큰이 생기기 전에 저장된 응답(editHash 없음)은 주최자만 손댈 수 있다.
+ */
+async function mayChange(request: Request, event: MoimEvent, editHash: string): Promise<boolean> {
+  const admin = request.headers.get("x-admin-token") ?? "";
+  if (admin && event.adminHash && (await sha256(admin)) === event.adminHash) return true;
+  const edit = request.headers.get("x-edit-token") ?? "";
+  return Boolean(edit && editHash && (await sha256(edit)) === editHash);
+}
+
+// 내 응답 저장
 export async function PUT(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   if (!EVENT_ID_PATTERN.test(id)) return fail("모임을 찾을 수 없어요.", 404);
@@ -38,20 +59,33 @@ export async function PUT(request: Request, ctx: Ctx) {
     );
     const unavailable = event.dates.filter((d) => picked.has(d));
 
-    const exists = await store.hasResponse(id, name);
-    if (!exists && (await store.countResponses(id)) >= LIMITS.participantsMax) {
-      return fail(`한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`, 409);
+    const currentHash = await store.getEditHash(id, name);
+    let editHash = currentHash ?? "";
+    let editToken: string | undefined;
+
+    if (currentHash === null) {
+      if ((await store.countResponses(id)) >= LIMITS.participantsMax) {
+        return fail(`한 모임에 ${LIMITS.participantsMax}명까지만 응답할 수 있어요.`, 409);
+      }
+      // 새 응답: 이 기기만 아는 수정 토큰을 발급한다
+      editToken = newAdminToken();
+      editHash = await sha256(editToken);
+    } else if (!(await mayChange(request, event, currentHash))) {
+      return fail(
+        "이미 같은 이름으로 응답한 사람이 있어요. 다른 사람이라면 이름을 조금 다르게 적어 주세요. 본인이라면 응답했던 기기에서 고칠 수 있어요.",
+        409,
+      );
     }
 
     const response = { name, relation, station, unavailable, updatedAt: Date.now() };
-    await store.putResponse(id, response);
-    return json({ response });
+    await store.putResponse(id, response, editHash);
+    return json({ response, editToken });
   } catch (error) {
     return handleError(error);
   }
 }
 
-// 내 응답 지우기
+// 응답 지우기 (응답한 기기 또는 주최자)
 export async function DELETE(request: Request, ctx: Ctx) {
   const { id } = await ctx.params;
   if (!EVENT_ID_PATTERN.test(id)) return fail("모임을 찾을 수 없어요.", 404);
@@ -59,7 +93,15 @@ export async function DELETE(request: Request, ctx: Ctx) {
   const name = validName(body?.name);
   if (!name) return fail("이름이 올바르지 않아요.");
   try {
-    await getStore().deleteResponse(id, name);
+    const store = getStore();
+    const event = await store.getEvent(id);
+    if (!event) return fail("모임을 찾을 수 없어요.", 404);
+    const currentHash = await store.getEditHash(id, name);
+    if (currentHash === null) return json({ ok: true });
+    if (!(await mayChange(request, event, currentHash))) {
+      return fail("이 응답은 응답한 기기나 주최자만 지울 수 있어요.", 403);
+    }
+    await store.deleteResponse(id, name);
     return json({ ok: true });
   } catch (error) {
     return handleError(error);

@@ -10,8 +10,10 @@ import {
   forgetEvent,
   readAdminToken,
   readName,
+  readEditToken,
   readStation,
   rememberAdminToken,
+  rememberEditToken,
   rememberEvent,
   rememberName,
   rememberStation,
@@ -96,7 +98,10 @@ export default function EventClient() {
       setAdminToken(fromHash ?? readAdminToken(event.id));
 
       const saved = readName(event.id);
-      const mine = saved ? responses.find((r) => r.name === saved) : undefined;
+      const mine =
+        saved && readEditToken(event.id, saved)
+          ? responses.find((r) => r.name === saved)
+          : undefined;
       if (saved) setName(saved);
       if (mine) {
         setRelation(mine.relation);
@@ -186,9 +191,25 @@ export default function EventClient() {
     go(found && !found.relation ? "relation" : "dates");
   }
 
+  /** 이 기기에서 그 응답을 고칠 수 있는지: 응답한 기기이거나 주최자 */
+  const canEdit = (target: string) =>
+    Boolean(adminToken || (event && readEditToken(event.id, target)));
+
+  const authHeaders = (target: string): Record<string, string> => ({
+    "Content-Type": "application/json",
+    "x-edit-token": event ? readEditToken(event.id, target) : "",
+    "x-admin-token": adminToken,
+  });
+
   function submitName() {
     if (!trimmedName) {
       setFormError("이름을 입력해 주세요.");
+      return;
+    }
+    if (existing && !canEdit(existing.name)) {
+      setFormError(
+        "이미 같은 이름으로 응답한 사람이 있어요. 다른 사람이라면 이름을 조금 다르게 적어 주세요.",
+      );
       return;
     }
     setName(trimmedName);
@@ -210,7 +231,7 @@ export default function EventClient() {
     try {
       const res = await fetch(`/api/events/${event.id}/responses`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(trimmedName),
         body: JSON.stringify({
           name: trimmedName,
           relation,
@@ -224,6 +245,8 @@ export default function EventClient() {
         return;
       }
       rememberName(event.id, trimmedName);
+      if (body.editToken)
+        rememberEditToken(event.id, trimmedName, body.editToken);
       if (station) rememberStation(station);
       await load();
       setPicked(null);
@@ -244,7 +267,7 @@ export default function EventClient() {
     try {
       const res = await fetch(`/api/events/${event.id}/responses`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(target),
         body: JSON.stringify({ name: target }),
       });
       if (!res.ok) {
@@ -255,6 +278,33 @@ export default function EventClient() {
       await load();
       go("result");
       showToast(`${target}님 응답을 지웠어요`);
+    } catch {
+      showToast("연결이 끊겼어요. 다시 시도해 주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function setConfirmed(next: { date: string; station: string } | null) {
+    if (saving || !event) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/events/${event.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": adminToken,
+        },
+        body: JSON.stringify({ confirmed: next }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(body.error ?? "확정하지 못했어요.");
+        return;
+      }
+      await load();
+      window.scrollTo({ top: 0 });
+      showToast(next ? "확정했어요" : "확정을 취소했어요");
     } catch {
       showToast("연결이 끊겼어요. 다시 시도해 주세요.");
     } finally {
@@ -388,7 +438,7 @@ export default function EventClient() {
               enterKeyHint="next"
               aria-label="이름"
             />
-            {existing && (
+            {existing && canEdit(existing.name) && (
               <p className="hint">
                 이미 응답한 이름이에요. 계속하면 그 응답을 고쳐요.
               </p>
@@ -558,7 +608,16 @@ export default function EventClient() {
 
   // ---------- 결과 ----------
   const total = responses.length;
-  const mine = responses.find((r) => r.name === trimmedName);
+  const mine = responses.find(
+    (r) => r.name === trimmedName && readEditToken(event.id, r.name),
+  );
+  const confirmed =
+    event.confirmed && dates.includes(event.confirmed.date)
+      ? event.confirmed
+      : null;
+  const notice = confirmed
+    ? `[${event.title}] ${formatKorean(confirmed.date)}${confirmed.station ? ` ${stationLabel(confirmed.station)}` : ""}에서 만나요!${event.memo ? ` (${event.memo})` : ""}`
+    : "";
   const best = ranking[0];
 
   return (
@@ -575,7 +634,27 @@ export default function EventClient() {
         </p>
       </header>
 
-      <div className={`summary${total > 0 && perfectCount > 0 ? " good" : ""}`}>
+      {confirmed && (
+        <div className="summary good confirmed">
+          <p className="summary-sub">확정했어요</p>
+          <p className="summary-main">
+            {formatKorean(confirmed.date)}
+            {confirmed.station && `, ${stationLabel(confirmed.station)}`}
+          </p>
+          <button
+            type="button"
+            className="btn white small"
+            onClick={() => copy(notice, "공지 문구를 복사했어요")}
+          >
+            공지 문구 복사
+          </button>
+        </div>
+      )}
+
+      <div
+        className={`summary${!confirmed && total > 0 && perfectCount > 0 ? " good" : ""}`}
+        hidden={Boolean(confirmed)}
+      >
         {total === 0 ? (
           <>
             <p className="summary-main">아직 응답한 사람이 없어요</p>
@@ -671,6 +750,33 @@ export default function EventClient() {
               골랐어요. 환승 시간은 반영하지 않았어요.
             </p>
           )}
+          {adminToken &&
+            (confirmed?.date === focus.date ? (
+              <button
+                type="button"
+                className="btn soft block confirm-btn"
+                onClick={() => setConfirmed(null)}
+                disabled={saving}
+              >
+                확정 취소
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn primary block confirm-btn"
+                onClick={() =>
+                  setConfirmed({
+                    date: focus.date,
+                    station: meeting[0]?.name ?? "",
+                  })
+                }
+                disabled={saving}
+              >
+                {meeting[0]
+                  ? `이 날, ${stationLabel(meeting[0].name)}으로 확정하기`
+                  : "이 날로 확정하기"}
+              </button>
+            ))}
         </section>
       )}
 
@@ -686,8 +792,12 @@ export default function EventClient() {
                   type="button"
                   className="row-button"
                   onClick={() => startEdit(r.name)}
+                  disabled={!canEdit(r.name)}
                 >
-                  <span className="row-main">{r.name}</span>
+                  <span className="row-main">
+                    {r.name}
+                    {mine?.name === r.name && <span className="me">나</span>}
+                  </span>
                   <span className="row-sub">
                     {[r.relation, r.station && stationLabel(r.station)]
                       .filter(Boolean)
@@ -720,7 +830,11 @@ export default function EventClient() {
               </li>
             ))}
           </ul>
-          <p className="fineprint">이름을 누르면 그 응답을 고칠 수 있어요.</p>
+          <p className="fineprint">
+            {adminToken
+              ? "주최자는 이름을 눌러 누구의 응답이든 고칠 수 있어요."
+              : "내 응답은 응답했던 기기에서만 고칠 수 있어요."}
+          </p>
         </section>
       )}
 

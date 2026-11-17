@@ -1690,3 +1690,31 @@ span.cell.day {
 .text-btn.edit {
   color: var(--blue);
 }
+
+/* 날짜 화면 위: 내 관계·출발역 바로 바꾸기 */
+.mine-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.info-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.info-change {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--blue);
+}

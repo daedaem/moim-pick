@@ -917,6 +917,27 @@ export default function EventClient() {
                 ? "날짜를 누르면 하루 전체가 바뀌고, 아래에서 점심·저녁만 따로 고칠 수 있어요."
                 : `${slotWord} 모임이에요. 다 괜찮으면 그대로 저장하면 돼요.`}
             </p>
+            {/* 날짜 화면에서 바로 관계·출발역도 바꿀 수 있게 한다 */}
+            <div className="mine-info">
+              <button
+                type="button"
+                className="info-chip"
+                onClick={() => go("relation")}
+              >
+                {relation || "관계 고르기"}
+                <span className="info-change">바꾸기</span>
+              </button>
+              <button
+                type="button"
+                className="info-chip"
+                onClick={() => go("station")}
+              >
+                {station ? stationLabel(station) : "출발역 없음"}
+                <span className="info-change">
+                  {station ? "바꾸기" : "고르기"}
+                </span>
+              </button>
+            </div>
             {hasBlocked && (
               <p className="lock-note">
                 회색 칸은 모임장 일정 때문에 고를 수 없어요.

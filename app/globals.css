@@ -1685,3 +1685,8 @@ span.cell.day {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
+
+/* 응답자 목록의 수정 버튼 */
+.text-btn.edit {
+  color: var(--blue);
+}

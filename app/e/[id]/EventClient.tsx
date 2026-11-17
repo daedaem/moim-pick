@@ -582,16 +582,21 @@ export default function EventClient() {
         setFormError(body.error ?? "저장하지 못했어요. 다시 시도해 주세요.");
         return;
       }
-      rememberName(event.id, trimmedName);
-      if (body.editToken)
-        rememberEditToken(event.id, trimmedName, body.editToken);
-      if (station) rememberStation(station);
+      // 모임장이 다른 사람 응답을 고친 경우에는 "내 이름"을 그 사람으로 바꾸지 않는다
+      const own = responses.find((r) => readEditToken(event.id, r.name));
+      const forOther = manage && Boolean(own) && own!.name !== trimmedName;
+      if (!forOther) {
+        rememberName(event.id, trimmedName);
+        if (body.editToken)
+          rememberEditToken(event.id, trimmedName, body.editToken);
+        if (station) rememberStation(station);
+      }
       markBlockedSeen(); // 방금 달력에서 빠진 칸을 보고 답했으므로 따로 알리지 않는다
       await load();
       setPicked(null);
       clearDraft(event.id);
       settle("result");
-      showToast("저장했어요");
+      showToast(forOther ? `${trimmedName}님 응답을 고쳤어요` : "저장했어요");
     } catch {
       setFormError(
         "연결이 끊겼어요. 인터넷 상태를 확인하고 다시 시도해 주세요.",
@@ -1439,6 +1444,15 @@ export default function EventClient() {
                         ? `${count}개 불가`
                         : `${count}일 불가`}
                   </span>
+                  {canEdit(r.name) && (
+                    <button
+                      type="button"
+                      className="text-btn edit"
+                      onClick={() => startEdit(r.name)}
+                    >
+                      수정
+                    </button>
+                  )}
                   {manage &&
                     (confirming === r.name ? (
                       <button

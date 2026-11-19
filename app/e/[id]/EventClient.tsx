@@ -127,6 +127,7 @@ export default function EventClient() {
   /** 안 된다고 표시한 칸 ("날짜:시간대") */
   const [unavailable, setUnavailable] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
+  const [renaming, setRenaming] = useState<string | null>(null); // 바꾸는 중인 모임 이름
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
@@ -650,6 +651,35 @@ export default function EventClient() {
       await load();
       window.scrollTo({ top: 0 });
       showToast(next ? "확정했어요" : "확정을 취소했어요");
+    } catch {
+      showToast("연결이 끊겼어요. 다시 시도해 주세요.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** 모임 이름 바꾸기 (모임장·관리자) */
+  async function renameEvent() {
+    if (saving || !event || renaming === null) return;
+    const title = renaming.replace(/\s+/g, " ").trim();
+    if (!title) return showToast("모임 이름을 입력해 주세요.");
+    if (title === event.title) return setRenaming(null);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/events/${event.id}`, {
+        method: "PATCH",
+        headers: tokenHeaders(id),
+        body: JSON.stringify({ title }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(body.error ?? "이름을 바꾸지 못했어요. 다시 시도해 주세요.");
+        return;
+      }
+      rememberEvent({ id: event.id, title }); // "최근에 연 모임"에도 새 이름으로
+      await load();
+      setRenaming(null);
+      showToast("모임 이름을 바꿨어요");
     } catch {
       showToast("연결이 끊겼어요. 다시 시도해 주세요.");
     } finally {
@@ -1513,6 +1543,48 @@ export default function EventClient() {
                 ? "모임장으로 들어와 있어요. 내가 안 되는 시간은 모임장 일정에서 한 번만 적으면 모든 모임에 반영돼요."
                 : "이 기기에서 만든 모임이라 관리할 수 있어요."}
             </p>
+            {renaming === null ? (
+              <button
+                type="button"
+                className="btn soft block"
+                onClick={() => setRenaming(event.title)}
+              >
+                모임 이름 바꾸기
+              </button>
+            ) : (
+              <form
+                className="rename"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void renameEvent();
+                }}
+              >
+                <input
+                  className="input"
+                  value={renaming}
+                  maxLength={LIMITS.titleMax}
+                  aria-label="모임 이름"
+                  onChange={(e) => setRenaming(e.target.value)}
+                  autoFocus
+                />
+                <div className="btn-row">
+                  <button
+                    type="submit"
+                    className="btn primary"
+                    disabled={saving}
+                  >
+                    저장
+                  </button>
+                  <button
+                    type="button"
+                    className="btn soft"
+                    onClick={() => setRenaming(null)}
+                  >
+                    취소
+                  </button>
+                </div>
+              </form>
+            )}
             <Link className="btn soft block" href="/host">
               모임장 일정 관리
             </Link>

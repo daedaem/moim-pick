@@ -1718,3 +1718,9 @@ span.cell.day {
   font-weight: 600;
   color: var(--blue);
 }
+
+/* 모임 이름 바꾸기 */
+.rename {
+  display: grid;
+  gap: 8px;
+}

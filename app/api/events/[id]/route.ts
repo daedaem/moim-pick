@@ -1,5 +1,6 @@
 import {
   canManage,
+  cleanLine,
   EVENT_ID_PATTERN,
   fail,
   handleError,
@@ -13,7 +14,7 @@ import { blockedFor } from "@/lib/blocks";
 import { eventSlots, normalizeUnavailable, slotKey } from "@/lib/slots";
 import { isStation } from "@/lib/stations";
 import { getStore } from "@/lib/store";
-import type { EventPayload, Slot } from "@/lib/types";
+import { LIMITS, type EventPayload, type Slot } from "@/lib/types";
 
 type Ctx = RouteContext<"/api/events/[id]">;
 
@@ -106,7 +107,18 @@ export async function PATCH(request: Request, ctx: Ctx) {
     }
 
     if (!(await canManage(request, event, store)))
-      return fail("모임장만 확정할 수 있어요.", 403);
+      return fail("모임장만 바꿀 수 있어요.", 403);
+
+    // 모임 이름 바꾸기
+    if (typeof body.title === "string") {
+      const title = cleanLine(body.title);
+      if (!title) return fail("모임 이름을 입력해 주세요.");
+      if (title.length > LIMITS.titleMax)
+        return fail(`모임 이름은 ${LIMITS.titleMax}자까지 쓸 수 있어요.`);
+      event.title = title;
+      await store.createEvent(event); // 같은 키에 덮어쓴다
+      return json({ event: publicEvent(event) });
+    }
 
     if (body.confirmed === null) {
       event.confirmed = null;

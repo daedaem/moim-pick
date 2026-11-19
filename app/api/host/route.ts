@@ -1,3 +1,4 @@
+import { bumpHostEvents } from "@/lib/blocks";
 import {
   fail,
   handleError,
@@ -7,6 +8,7 @@ import {
   tooMany,
 } from "@/lib/api";
 import { confirmedOf, eventSlots, parseSlotKey } from "@/lib/slots";
+import { displayName } from "@/lib/account";
 import { isSiteAdmin } from "@/lib/admin";
 import { getStore } from "@/lib/store";
 
@@ -25,7 +27,7 @@ export async function GET(request: Request) {
     ]);
     events.sort((a, b) => b.createdAt - a.createdAt);
     return json({
-      account,
+      account: account ? displayName(account) : null,
       siteAdmin: isSiteAdmin(account),
       blocks: host?.blocks ?? [],
       events: events.map((e) => ({
@@ -65,6 +67,7 @@ export async function PUT(request: Request) {
       return fail("요청이 너무 많아요. 잠시 뒤에 다시 시도해 주세요.", 429);
     }
     await store.putHost(hostHash, { blocks, updatedAt: Date.now() });
+    await bumpHostEvents(hostHash, store); // 열려 있는 모임 화면들이 새 일정으로 바뀌게
     return json({ blocks });
   } catch (error) {
     return handleError(error);

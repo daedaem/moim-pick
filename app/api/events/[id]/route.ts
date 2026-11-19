@@ -6,11 +6,12 @@ import {
   handleError,
   hostHashOf,
   json,
+  parseExpected,
   publicEvent,
   readBody,
   sha256,
 } from "@/lib/api";
-import { blockedFor } from "@/lib/blocks";
+import { blockedFor, bumpHostEvents } from "@/lib/blocks";
 import { eventSlots, normalizeUnavailable, slotKey } from "@/lib/slots";
 import { isStation } from "@/lib/stations";
 import { getStore } from "@/lib/store";
@@ -29,10 +30,11 @@ export async function GET(request: Request, ctx: Ctx) {
       return fail("모임을 찾을 수 없어요. 링크가 맞는지 확인해 주세요.", 404);
     // 검색 기능이 생기기 전에 만든 모임도 한 번 열리면 검색 목록에 올린다
     if (event.searchable === undefined) await store.setIndexed(event, true);
-    const [responses, blocked, manage] = await Promise.all([
+    const [responses, blocked, manage, version] = await Promise.all([
       store.listResponses(id),
       blockedFor(event, store),
       canManage(request, event, store),
+      store.getVersion(id),
     ]);
     responses.sort((a, b) => a.updatedAt - b.updatedAt);
     const payload: EventPayload = {
@@ -44,6 +46,7 @@ export async function GET(request: Request, ctx: Ctx) {
       blocked,
       canManage: manage,
       hosted: Boolean(event.hostHash),
+      version,
     };
     return json(payload);
   } catch (error) {
@@ -66,7 +69,11 @@ export async function DELETE(request: Request, ctx: Ctx) {
       );
     }
     await store.deleteEvent(id);
-    if (event.hostHash) await store.linkHostEvent(event.hostHash, id, false);
+    if (event.hostHash) {
+      await store.linkHostEvent(event.hostHash, id, false);
+      // 확정된 모임이었다면 다른 모임에서 막혀 있던 날이 풀린다
+      if (event.confirmed) await bumpHostEvents(event.hostHash, store);
+    }
     return json({ ok: true });
   } catch (error) {
     return handleError(error);
@@ -109,13 +116,24 @@ export async function PATCH(request: Request, ctx: Ctx) {
     if (!(await canManage(request, event, store)))
       return fail("모임장만 바꿀 수 있어요.", 403);
 
-    // 모임 이름 바꾸기
-    if (typeof body.title === "string") {
-      const title = cleanLine(body.title);
-      if (!title) return fail("모임 이름을 입력해 주세요.");
-      if (title.length > LIMITS.titleMax)
-        return fail(`모임 이름은 ${LIMITS.titleMax}자까지 쓸 수 있어요.`);
-      event.title = title;
+    // 모임 정보 바꾸기 (이름, 예상 인원)
+    if (typeof body.title === "string" || "expected" in body) {
+      if (typeof body.title === "string") {
+        const title = cleanLine(body.title);
+        if (!title) return fail("모임 이름을 입력해 주세요.");
+        if (title.length > LIMITS.titleMax)
+          return fail(`모임 이름은 ${LIMITS.titleMax}자까지 쓸 수 있어요.`);
+        event.title = title;
+      }
+      if ("expected" in body) {
+        const expected = parseExpected(body.expected);
+        if (expected === undefined)
+          return fail(
+            `예상 인원은 2~${LIMITS.participantsMax}명 사이로 적어 주세요.`,
+          );
+        if (expected) event.expected = expected;
+        else delete event.expected;
+      }
       await store.createEvent(event); // 같은 키에 덮어쓴다
       return json({ event: publicEvent(event) });
     }
@@ -143,6 +161,8 @@ export async function PATCH(request: Request, ctx: Ctx) {
       event.confirmed = { date, slot, station };
     }
     await store.createEvent(event); // 같은 키에 덮어쓴다
+    // 같은 모임장의 다른 모임은 이 확정 때문에 막히는 날이 바뀐다
+    if (event.hostHash) await bumpHostEvents(event.hostHash, store);
     return json({ event: publicEvent(event) });
   } catch (error) {
     return handleError(error);

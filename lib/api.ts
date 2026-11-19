@@ -1,6 +1,7 @@
 import { unstable_rethrow } from "next/navigation";
 import { isSiteAdmin } from "./admin";
 import { StoreNotConfiguredError } from "./store";
+import { LIMITS } from "./types";
 
 export function json(data: unknown, status = 200) {
   return Response.json(data, {
@@ -162,4 +163,12 @@ export async function isAdminRequest(
 ): Promise<boolean> {
   const host = await hostHashOf(request, store);
   return host ? isSiteAdmin(await store.getHostAccount(host)) : false;
+}
+
+/** 예상 인원: 2~참여 최대 인원 사이의 정수만 받는다. 비우면 null, 잘못된 값이면 undefined */
+export function parseExpected(value: unknown): number | null | undefined {
+  if (value === null || value === "" || value === undefined) return null;
+  const n = typeof value === "string" ? Number(value) : value;
+  if (typeof n !== "number" || !Number.isInteger(n)) return undefined;
+  return n >= 2 && n <= LIMITS.participantsMax ? n : undefined;
 }

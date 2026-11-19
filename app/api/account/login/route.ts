@@ -2,7 +2,8 @@ import { fail, handleError, hostHashOf, json, readBody } from "@/lib/api";
 import {
   FAILS_PER_15_MIN,
   FAILS_PER_DAY,
-  hashPin,
+  displayName,
+  matchAccount,
   mergeHost,
   normalizeAccountId,
   openSession,
@@ -40,11 +41,9 @@ export async function POST(request: Request) {
       );
     }
 
-    const account = await store.getAccount(id);
-    const ok =
-      account !== null &&
-      (await hashPin(pin, account.salt)) === account.pinHash;
-    if (!account || !ok) {
+    // 같은 이름이 여럿이면 숫자 4자리가 맞는 계정을 찾는다
+    const account = await matchAccount(store, id, pin);
+    if (!account) {
       const [fails] = await Promise.all([
         store.hit(`pin15:${id}`, 15 * 60),
         store.hit(`pinday:${id}`, 24 * 60 * 60),
@@ -68,7 +67,7 @@ export async function POST(request: Request) {
       await mergeHost(store, deviceHost, account.hostHash);
     }
     return json({
-      id: account.id,
+      id: displayName(account.id),
       token: await openSession(store, account.hostHash),
     });
   } catch (error) {

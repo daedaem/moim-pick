@@ -1724,3 +1724,98 @@ span.cell.day {
   display: grid;
   gap: 8px;
 }
+
+/* 개인정보 안내 */
+.privacy-note {
+  margin-top: 16px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.privacy-note a,
+.credit a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.credit.center {
+  text-align: center;
+}
+
+.doc {
+  display: grid;
+  gap: 24px;
+  margin-top: 28px;
+}
+
+.doc h2 {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.doc p,
+.doc li {
+  margin-top: 8px;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--sub);
+}
+
+.doc ul {
+  padding-left: 18px;
+}
+
+/* 계정 지우기 */
+.danger-zone {
+  display: grid;
+  gap: 10px;
+}
+
+/* 응답 현황 줄 */
+.summary-progress {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sub);
+}
+
+/* 추천 시간 3개 */
+.section.tight {
+  margin-top: 20px;
+}
+
+.picks {
+  list-style: none;
+  padding: 0;
+}
+
+.row-button.pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+}
+
+.pick-rank {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--blue-soft);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--blue);
+}
+
+.pick-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}

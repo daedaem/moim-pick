@@ -57,6 +57,7 @@ export default function HostPage() {
   const [dirty, setDirty] = useState(false);
   const [editDate, setEditDate] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [leaving, setLeaving] = useState<string | null>(null); // 계정 지우기 확인용 숫자
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -199,6 +200,40 @@ export default function HostPage() {
     setEvents([]);
     setEditDate(null);
     showToast("로그아웃했어요");
+  }
+
+  /** 계정과 내가 만든 모임을 모두 지운다 */
+  async function deleteAccount() {
+    if (saving || leaving === null) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/account", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "x-host-token": readHostToken(),
+        },
+        body: JSON.stringify({ pin: leaving }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(body.error ?? "지우지 못했어요. 다시 시도해 주세요.");
+        return;
+      }
+      for (const e of events) forgetEvent(e.id);
+      setLeaving(null);
+      forgetLogin();
+      setToken("");
+      setAccount("");
+      setLoaded(false);
+      setBlocks(new Set());
+      setEvents([]);
+      showToast("계정과 모임을 모두 지웠어요");
+    } catch {
+      showToast("연결이 끊겼어요. 다시 시도해 주세요.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   /** 사이트 관리자: 아무 모임이나 지운다 */
@@ -434,6 +469,63 @@ export default function HostPage() {
                 관리자 계정에만 보여요. 지우면 그 모임의 응답도 함께 사라지고
                 되돌릴 수 없어요.
               </p>
+            </section>
+          )}
+
+          {!siteAdmin && (
+            <section className="section">
+              {leaving === null ? (
+                <button
+                  type="button"
+                  className="text-btn danger"
+                  onClick={() => setLeaving("")}
+                >
+                  계정 지우기
+                </button>
+              ) : (
+                <form
+                  className="card danger-zone"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void deleteAccount();
+                  }}
+                >
+                  <p className="notice-title">계정을 지울까요?</p>
+                  <p className="manage-note">
+                    내 일정, 내가 만든 모임 {events.length}개와 그 응답이 모두
+                    지워지고 되돌릴 수 없어요. 확인을 위해 숫자 4자리를 다시
+                    입력해 주세요.
+                  </p>
+                  <input
+                    className="input pin"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="current-password"
+                    maxLength={4}
+                    value={leaving}
+                    aria-label="숫자 4자리"
+                    onChange={(e) =>
+                      setLeaving(e.target.value.replace(/\D/g, "").slice(0, 4))
+                    }
+                  />
+                  <div className="btn-row">
+                    <button
+                      type="submit"
+                      className="btn danger"
+                      disabled={saving || leaving.length !== 4}
+                    >
+                      모두 지우기
+                    </button>
+                    <button
+                      type="button"
+                      className="btn soft"
+                      onClick={() => setLeaving(null)}
+                    >
+                      취소
+                    </button>
+                  </div>
+                </form>
+              )}
             </section>
           )}
 

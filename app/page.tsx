@@ -46,11 +46,12 @@ export default function HomePage() {
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [memo, setMemo] = useState("");
+  const [expected, setExpected] = useState(""); // 예상 인원 (선택)
   // 기간을 직접 고치기 전에는 "내일부터 4주"를 기본값으로 보여 준다
   const [startInput, setStart] = useState<string | null>(null);
   const [endInput, setEnd] = useState<string | null>(null);
   const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
-  const [searchable, setSearchable] = useState(true);
+  const [searchable, setSearchable] = useState(false); // 기본은 링크로만 들어오게
   const [slotChoice, setSlotChoice] = useState<"L" | "D" | "LD">("LD");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -163,6 +164,7 @@ export default function HomePage() {
         body: JSON.stringify({
           title,
           memo,
+          expected: expected ? Number(expected) : null,
           start,
           end,
           weekdays,
@@ -187,6 +189,7 @@ export default function HomePage() {
       setCreating(false);
       setTitle("");
       setMemo("");
+      setExpected("");
       setBusy(false);
       router.replace(`/e/${data.event.id}`);
     } catch {
@@ -237,6 +240,21 @@ export default function HomePage() {
                 onChange={(e) => setMemo(e.target.value)}
                 placeholder="예: 저녁 7시쯤"
                 maxLength={LIMITS.memoMax}
+              />
+            </label>
+
+            <label className="field">
+              <span className="field-label">
+                예상 인원 <span className="optional">선택</span>
+              </span>
+              <input
+                className="input"
+                inputMode="numeric"
+                value={expected}
+                onChange={(e) =>
+                  setExpected(e.target.value.replace(/\D/g, "").slice(0, 2))
+                }
+                placeholder="예: 8 (적으면 '8명 중 5명 응답'처럼 보여요)"
               />
             </label>
           </div>
@@ -505,6 +523,9 @@ export default function HomePage() {
           <Link href="/login?join=1">회원가입</Link>
         </p>
       )}
+      <p className="credit center">
+        <Link href="/privacy">개인정보 안내</Link>
+      </p>
 
       <div className="cta-bar">
         <div className="cta-inner">

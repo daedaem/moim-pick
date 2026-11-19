@@ -124,7 +124,7 @@ export default function AccountForm({ initialMode, onDone }: Props) {
       <p className="fineprint">
         {mode === "login"
           ? "5번 틀리면 15분 동안 잠겨요."
-          : "이름은 한글 실명으로 적어 주세요. 이 기기에서 만든 모임과 일정은 그대로 계정으로 옮겨져요."}
+          : "이름은 한글 실명으로 적어 주세요. 같은 이름이 있어도 가입할 수 있고, 로그인할 때 숫자 4자리로 구별해요."}
       </p>
     </form>
   );

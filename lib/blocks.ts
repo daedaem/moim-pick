@@ -36,3 +36,15 @@ export async function blockedFor(
   }
   return out;
 }
+
+/** 모임장의 모든 모임에 "바뀜"을 알린다 (모임장 일정·다른 모임 확정이 바뀌었을 때) */
+export async function bumpHostEvents(
+  hostHash: string,
+  store: {
+    listHostEvents(hostHash: string): Promise<MoimEvent[]>;
+    bumpVersion(id: string): Promise<void>;
+  },
+): Promise<void> {
+  const events = await store.listHostEvents(hostHash);
+  await Promise.all(events.map((e) => store.bumpVersion(e.id)));
+}

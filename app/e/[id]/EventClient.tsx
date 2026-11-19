@@ -36,6 +36,7 @@ import {
   formatSlot,
   parseSlotKey,
   SLOT_LABELS,
+  SLOT_ORDER,
   slotKey,
 } from "@/lib/slots";
 import {
@@ -128,6 +129,7 @@ export default function EventClient() {
   const [unavailable, setUnavailable] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null); // 바꾸는 중인 모임 이름
+  const [editExpected, setEditExpected] = useState(""); // 바꾸는 중인 예상 인원
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
@@ -326,18 +328,61 @@ export default function EventClient() {
     });
   }, [id, view, name, relation, station, unavailable]);
 
-  // 다른 사람이 응답하면 반영되도록, 화면을 보고 있는 동안 주기적으로 새로 고친다
+  // 다른 사람이 응답하면 반영되도록, 화면을 보고 있는 동안 주기적으로 확인한다.
+  // 서버 부담을 줄이려고 평소에는 "바뀌었는지"만 묻고(번호 비교), 바뀐 경우에만 전체를 다시 불러온다.
+  // 15분 동안 아무 조작이 없으면 확인을 멈췄다가, 다시 만지면 바로 새로 불러온다.
+  const version = data?.version;
+  const versionRef = useRef<number | undefined>(undefined);
   useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState === "visible") void load();
+    versionRef.current = version;
+  }, [version]);
+  useEffect(() => {
+    const IDLE_MS = 15 * 60_000;
+    let lastActive = Date.now();
+    let idle = false;
+    const visible = () => document.visibilityState === "visible";
+    const check = async () => {
+      if (!visible() || idle) return;
+      if (Date.now() - lastActive > IDLE_MS) {
+        idle = true;
+        return;
+      }
+      try {
+        const res = await fetch(`/api/events/${id}/version`, {
+          cache: "no-store",
+        });
+        const body = (await res.json().catch(() => ({}))) as {
+          version?: number;
+        };
+        if (!res.ok || body.version !== versionRef.current) void load();
+      } catch {
+        /* 연결이 잠깐 끊긴 경우: 다음 확인 때 다시 */
+      }
     };
-    const timer = setInterval(refresh, 20_000);
-    document.addEventListener("visibilitychange", refresh);
+    const wake = () => {
+      lastActive = Date.now();
+      if (idle && visible()) {
+        idle = false;
+        void load();
+      }
+    };
+    const onVisible = () => {
+      if (!visible()) return;
+      lastActive = Date.now();
+      idle = false;
+      void load();
+    };
+    const timer = setInterval(check, 20_000);
+    document.addEventListener("visibilitychange", onVisible);
+    for (const type of ["pointerdown", "keydown", "scroll"] as const)
+      window.addEventListener(type, wake, { passive: true });
     return () => {
       clearInterval(timer);
-      document.removeEventListener("visibilitychange", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+      for (const type of ["pointerdown", "keydown", "scroll"] as const)
+        window.removeEventListener(type, wake);
     };
-  }, [load]);
+  }, [id, load]);
 
   const event = data?.event ?? null;
   const responses = useMemo(() => data?.responses ?? [], [data]);
@@ -360,17 +405,23 @@ export default function EventClient() {
 
   /** 칸마다 안 되는 사람. 안 되는 사람이 적은 순 */
   const ranking = useMemo(() => {
-    return openKeys
-      .map((key) => ({
-        key,
-        missing: responses
-          .filter((r) => r.unavailable.includes(key))
-          .map((r) => r.name),
-      }))
-      .sort(
-        (a, b) =>
-          a.missing.length - b.missing.length || a.key.localeCompare(b.key),
-      );
+    return (
+      openKeys
+        .map((key) => ({
+          key,
+          missing: responses
+            .filter((r) => r.unavailable.includes(key))
+            .map((r) => r.name),
+        }))
+        // 안 되는 사람이 적은 순 → 빠른 날 → 같은 날이면 점심 먼저
+        .sort(
+          (a, b) =>
+            a.missing.length - b.missing.length ||
+            a.key.slice(0, 10).localeCompare(b.key.slice(0, 10)) ||
+            SLOT_ORDER.indexOf(a.key.slice(11) as Slot) -
+              SLOT_ORDER.indexOf(b.key.slice(11) as Slot),
+        )
+    );
   }, [openKeys, responses]);
   const missingByKey = useMemo(
     () => new Map(ranking.map((row) => [row.key, row.missing])),
@@ -663,13 +714,15 @@ export default function EventClient() {
     if (saving || !event || renaming === null) return;
     const title = renaming.replace(/\s+/g, " ").trim();
     if (!title) return showToast("모임 이름을 입력해 주세요.");
-    if (title === event.title) return setRenaming(null);
+    const nextExpected = editExpected ? Number(editExpected) : null;
+    if (title === event.title && nextExpected === (event.expected ?? null))
+      return setRenaming(null);
     setSaving(true);
     try {
       const res = await fetch(`/api/events/${event.id}`, {
         method: "PATCH",
         headers: tokenHeaders(id),
-        body: JSON.stringify({ title }),
+        body: JSON.stringify({ title, expected: nextExpected }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -679,7 +732,7 @@ export default function EventClient() {
       rememberEvent({ id: event.id, title }); // "최근에 연 모임"에도 새 이름으로
       await load();
       setRenaming(null);
-      showToast("모임 이름을 바꿨어요");
+      showToast("모임 정보를 바꿨어요");
     } catch {
       showToast("연결이 끊겼어요. 다시 시도해 주세요.");
     } finally {
@@ -880,6 +933,11 @@ export default function EventClient() {
                 이미 응답한 이름이에요. 계속하면 그 응답을 고쳐요.
               </p>
             )}
+            <p className="privacy-note">
+              적은 이름·관계·출발역·안 되는 시간은 이 모임 링크를 가진 사람에게
+              보이고, 마지막으로 바뀐 뒤 120일이 지나면 자동으로 지워져요.{" "}
+              <Link href="/privacy">개인정보 안내</Link>
+            </p>
             {nameIdea && existing && !canEdit(existing.name) && (
               <button
                 type="button"
@@ -1117,6 +1175,34 @@ export default function EventClient() {
     ) ?? responses.find((r) => readEditToken(event.id, r.name));
   const best = ranking[0];
   const bestSlot = best ? parseSlotKey(best.key) : null;
+  // 응답 현황: 예상 인원을 적었으면 "8명 중 5명 응답"
+  const expected = event.expected ?? 0;
+  const progressText =
+    expected > 0
+      ? total >= expected
+        ? `예상한 ${expected}명이 모두 응답했어요`
+        : `${expected}명 중 ${total}명 응답, ${expected - total}명 남았어요`
+      : "";
+  // 추천 시간 3개: 안 되는 사람이 적은 순, 같으면 빠른 날. 각 시간대마다 모이기 좋은 역 1곳
+  // 같은 날이 여러 번 나오지 않게 날짜마다 가장 좋은 시간대 하나만 고른다
+  const seenDates = new Set<string>();
+  const topRows = ranking.filter((row) => {
+    const date = row.key.slice(0, 10);
+    if (seenDates.has(date)) return false;
+    seenDates.add(date);
+    return true;
+  });
+  const topPicks = topRows.slice(0, 3).map((row) => {
+    const parsed = parseSlotKey(row.key)!;
+    const origins = responses
+      .filter((r) => r.station && !r.unavailable.includes(row.key))
+      .map((r) => r.station);
+    return {
+      ...row,
+      ...parsed,
+      station: recommendMeetingPoints(origins, 1)[0]?.name ?? "",
+    };
+  });
   const confirmedText = confirmed
     ? `${formatSlot(confirmed.date, confirmed.slot)}${confirmed.station ? `, ${stationLabel(confirmed.station)}` : ""}`
     : "";
@@ -1224,7 +1310,46 @@ export default function EventClient() {
               )}
             </>
           )}
+          {progressText && <p className="summary-progress">{progressText}</p>}
         </div>
+      )}
+
+      {!confirmed && total > 0 && topPicks.length > 0 && (
+        <section className="section tight">
+          <h2 className="section-title">추천 시간</h2>
+          <ol className="card list picks">
+            {topPicks.map((p, i) => (
+              <li key={p.key}>
+                <button
+                  type="button"
+                  className="row-button pick"
+                  onClick={() => {
+                    setPicked(p.date);
+                    document
+                      .getElementById("detail")
+                      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                >
+                  <span className="pick-rank">{i + 1}</span>
+                  <span className="pick-main">
+                    <span className="row-main">
+                      {twoSlots
+                        ? formatSlot(p.date, p.slot)
+                        : formatKorean(p.date)}
+                    </span>
+                    <span className="row-sub">
+                      {p.missing.length === 0
+                        ? `${total}명 모두 가능`
+                        : `${total - p.missing.length}명 가능, ${p.missing.join(", ")} 불가`}
+                      {p.station && ` · ${stationLabel(p.station)} 추천`}
+                    </span>
+                  </span>
+                  <span className="row-chevron" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ol>
+        </section>
       )}
 
       <div className="card">
@@ -1328,7 +1453,6 @@ export default function EventClient() {
                   </dl>
                 )}
                 {manage &&
-                  total > 0 &&
                   (isConfirmed ? (
                     <button
                       type="button"
@@ -1547,9 +1671,12 @@ export default function EventClient() {
               <button
                 type="button"
                 className="btn soft block"
-                onClick={() => setRenaming(event.title)}
+                onClick={() => {
+                  setRenaming(event.title);
+                  setEditExpected(event.expected ? String(event.expected) : "");
+                }}
               >
-                모임 이름 바꾸기
+                모임 이름·인원 바꾸기
               </button>
             ) : (
               <form
@@ -1566,6 +1693,18 @@ export default function EventClient() {
                   aria-label="모임 이름"
                   onChange={(e) => setRenaming(e.target.value)}
                   autoFocus
+                />
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  value={editExpected}
+                  aria-label="예상 인원"
+                  placeholder="예상 인원 (선택, 예: 8)"
+                  onChange={(e) =>
+                    setEditExpected(
+                      e.target.value.replace(/\D/g, "").slice(0, 2),
+                    )
+                  }
                 />
                 <div className="btn-row">
                   <button
@@ -1640,7 +1779,7 @@ export default function EventClient() {
         >
           OpenStreetMap
         </a>{" "}
-        기여자
+        기여자 · <Link href="/privacy">개인정보 안내</Link>
       </p>
 
       <div className="cta-bar">

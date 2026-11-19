@@ -33,6 +33,9 @@ interface Store {
   createEvent(event: MoimEvent): Promise<void>;
   getEvent(id: string): Promise<MoimEvent | null>;
   deleteEvent(id: string): Promise<void>;
+  /** 모임 화면에 보이는 내용이 바뀔 때마다 1씩 오르는 번호 (자동 새로고침이 이것만 가볍게 확인한다) */
+  getVersion(id: string): Promise<number>;
+  bumpVersion(id: string): Promise<void>;
   /** 정해진 시간 동안 같은 키로 몇 번째 요청인지 센다 (도배 방지용) */
   hit(key: string, windowSeconds: number): Promise<number>;
   /** 이름 검색 목록에 올리거나(true) 내린다(false) */
@@ -72,6 +75,11 @@ interface Store {
   /** 모임장 해시가 어느 계정의 것인지 */
   getHostAccount(hostHash: string): Promise<string | null>;
   setHostAccount(hostHash: string, accountId: string): Promise<void>;
+  /** 같은 이름으로 가입한 계정들의 키 (동명이인 구별용) */
+  listNameAccounts(name: string): Promise<string[]>;
+  setNameAccount(name: string, key: string, linked: boolean): Promise<void>;
+  /** 계정 지우기: 계정과 '모임장 해시 → 계정' 연결을 지운다 */
+  deleteAccount(accountId: string, hostHash: string): Promise<void>;
   /** 로그인 세션: 세션 토큰의 해시 → 모임장 해시 */
   putSession(sessionHash: string, hostHash: string): Promise<void>;
   getSessionHost(sessionHash: string): Promise<string | null>;
@@ -80,12 +88,14 @@ interface Store {
 
 const eventKey = (id: string) => `mp:event:${id}`;
 const responsesKey = (id: string) => `mp:event:${id}:responses`;
+const versionKey = (id: string) => `mp:event:${id}:v`;
 const hostKey = (hash: string) => `mp:host:${hash}`;
 const hostEventsKey = (hash: string) => `mp:host:${hash}:events`;
 const HOST_TTL_SECONDS = 60 * 60 * 24 * 400;
 const SESSION_TTL_SECONDS = 60 * 60 * 24 * 200;
 const accountKey = (id: string) => `mp:account:${id}`;
 const hostAccountKey = (hash: string) => `mp:hostacct:${hash}`;
+const nameAccountsKey = (name: string) => `mp:accname:${name}`;
 const sessionKey = (hash: string) => `mp:session:${hash}`;
 const INDEX_KEY = "mp:index"; // 정렬 집합: 점수 = 만든 시각, 값 = 모임 ID
 
@@ -122,15 +132,24 @@ function findCredentials(): { url: string; token: string } | null {
 }
 
 function redisStore(redis: Redis): Store {
+  const bump = async (id: string) => {
+    await redis.incr(versionKey(id));
+    await redis.expire(versionKey(id), TTL_SECONDS);
+  };
   return {
     async createEvent(event) {
       await redis.set(eventKey(event.id), event, { ex: TTL_SECONDS });
+      await bump(event.id);
     },
+    async getVersion(id) {
+      return Number(await redis.get<number>(versionKey(id))) || 0;
+    },
+    bumpVersion: bump,
     async getEvent(id) {
       return (await redis.get<MoimEvent>(eventKey(id))) ?? null;
     },
     async deleteEvent(id) {
-      await redis.del(eventKey(id), responsesKey(id));
+      await redis.del(eventKey(id), responsesKey(id), versionKey(id));
       await redis.zrem(INDEX_KEY, id);
     },
     async deleteHost(hostHash) {
@@ -173,6 +192,16 @@ function redisStore(redis: Redis): Store {
     },
     async setHostAccount(hostHash, accountId) {
       await redis.set(hostAccountKey(hostHash), accountId);
+    },
+    async deleteAccount(accountId, hostHash) {
+      await redis.del(accountKey(accountId), hostAccountKey(hostHash));
+    },
+    async listNameAccounts(name) {
+      return (await redis.smembers(nameAccountsKey(name))).map(String);
+    },
+    async setNameAccount(name, key, linked) {
+      if (linked) await redis.sadd(nameAccountsKey(name), key);
+      else await redis.srem(nameAccountsKey(name), key);
     },
     async putSession(sessionHash, hostHash) {
       await redis.set(sessionKey(sessionHash), hostHash, {
@@ -256,10 +285,12 @@ function redisStore(redis: Redis): Store {
       await Promise.all([
         redis.expire(responsesKey(id), TTL_SECONDS),
         redis.expire(eventKey(id), TTL_SECONDS),
+        bump(id),
       ]);
     },
     async deleteResponse(id, name) {
       await redis.hdel(responsesKey(id), name);
+      await bump(id);
     },
     async getHost(hostHash) {
       return (await redis.get<HostRecord>(hostKey(hostHash))) ?? null;
@@ -289,6 +320,11 @@ function redisStore(redis: Redis): Store {
 }
 
 function memoryStore(): Store {
+  const versions = new Map<string, number>();
+  const nameAccounts = new Map<string, Set<string>>();
+  const bump = async (id: string) => {
+    versions.set(id, (versions.get(id) ?? 0) + 1);
+  };
   const g = globalThis as unknown as {
     __moimEvents?: Map<string, MoimEvent>;
     __moimResponses?: Map<string, Map<string, StoredResponse>>;
@@ -323,11 +359,17 @@ function memoryStore(): Store {
   return {
     async createEvent(event) {
       events.set(event.id, event);
+      await bump(event.id);
     },
+    async getVersion(id) {
+      return versions.get(id) ?? 0;
+    },
+    bumpVersion: bump,
     async getEvent(id) {
       return events.get(id) ?? null;
     },
     async deleteEvent(id) {
+      versions.delete(id);
       events.delete(id);
       responses.delete(id);
       index.delete(id);
@@ -356,6 +398,19 @@ function memoryStore(): Store {
     },
     async setHostAccount(hostHash, accountId) {
       hostAccounts.set(hostHash, accountId);
+    },
+    async deleteAccount(accountId, hostHash) {
+      accounts.delete(accountId);
+      hostAccounts.delete(hostHash);
+    },
+    async listNameAccounts(name) {
+      return [...(nameAccounts.get(name) ?? [])];
+    },
+    async setNameAccount(name, key, linked) {
+      const set = nameAccounts.get(name) ?? new Set<string>();
+      if (linked) set.add(key);
+      else set.delete(key);
+      nameAccounts.set(name, set);
     },
     async putSession(sessionHash, hostHash) {
       sessions.set(sessionHash, hostHash);
@@ -419,9 +474,11 @@ function memoryStore(): Store {
         unavailable: response.unavailable,
         updatedAt: response.updatedAt,
       });
+      await bump(id);
     },
     async deleteResponse(id, name) {
       bucket(id).delete(name);
+      await bump(id);
     },
     async getHost(hostHash) {
       return hosts.get(hostHash) ?? null;

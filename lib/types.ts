@@ -10,6 +10,8 @@ export type MoimEvent = {
   /** 받는 시간대. 값이 없는 예전 모임은 저녁 하나로 본다 */
   slots?: Slot[];
   createdAt: number;
+  /** 모임장이 예상하는 참여 인원 (선택). "8명 중 5명 응답"처럼 보여 준다 */
+  expected?: number;
   /** 첫 화면에서 이름으로 검색되게 할지 (값이 없으면 허용) */
   searchable?: boolean;
   /** 주최자가 확정한 날짜와 장소 */
@@ -43,6 +45,8 @@ export type EventPayload = {
   canManage: boolean;
   /** 이 모임이 모임장 계정에 묶여 있는지 */
   hosted: boolean;
+  /** 화면 내용이 바뀔 때마다 오르는 번호 (자동 새로고침용) */
+  version: number;
 };
 
 /** 모임장이 모임과 상관없이 안 되는 칸 등 */

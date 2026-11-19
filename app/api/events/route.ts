@@ -1,5 +1,6 @@
 import {
   accountOf,
+  parseExpected,
   cleanLine,
   fail,
   handleError,
@@ -48,6 +49,11 @@ export async function POST(request: Request) {
   if (memo.length > LIMITS.memoMax)
     return fail(`메모는 ${LIMITS.memoMax}자까지 쓸 수 있어요.`);
   if (slots.length === 0) return fail("점심, 저녁 중 하나 이상 골라 주세요.");
+  const expected = parseExpected(body.expected);
+  if (expected === undefined)
+    return fail(
+      `예상 인원은 2~${LIMITS.participantsMax}명 사이로 적어 주세요.`,
+    );
 
   const s = parseYmd(start);
   const e = parseYmd(end);
@@ -89,6 +95,7 @@ export async function POST(request: Request) {
       adminHash: await sha256(adminToken),
       searchable: body.searchable !== false,
       hostHash,
+      ...(expected ? { expected } : {}),
     };
     await store.createEvent(event);
     if (event.searchable) await store.setIndexed(event, true);

@@ -73,6 +73,19 @@ export default function PrivacyPage() {
         </section>
 
         <section>
+          <h2>문의와 삭제 요청</h2>
+          <p>
+            개인정보 처리 책임자: 조해성
+            <br />
+            이메일: <a href="mailto:201826888@snu.ac.kr">201826888@snu.ac.kr</a>
+          </p>
+          <p>
+            내 정보를 직접 지울 수 없거나 궁금한 점이 있으면 이메일로 알려
+            주세요.
+          </p>
+        </section>
+
+        <section>
           <h2>저장하는 곳</h2>
           <p>
             사이트는 Vercel에서, 데이터는 Upstash(일본 도쿄 서버)에 저장해요.

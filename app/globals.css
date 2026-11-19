@@ -1957,3 +1957,7 @@ span.cell.day {
   font-size: 13px;
   color: var(--muted);
 }
+
+.doc a {
+  color: var(--blue);
+}

@@ -2,10 +2,12 @@ import { fail, handleError, hostHashOf, json, readBody } from "@/lib/api";
 import {
   FAILS_PER_15_MIN,
   FAILS_PER_DAY,
-  displayName,
+  accountName,
+  hashPin,
   matchAccount,
   mergeHost,
   normalizeAccountId,
+  normalizeLoginId,
   openSession,
   PIN_PATTERN,
 } from "@/lib/account";
@@ -16,10 +18,11 @@ import { getStore } from "@/lib/store";
 export async function POST(request: Request) {
   const body = await readBody(request);
   if (!body) return fail("요청 형식이 올바르지 않아요.");
-  const id = normalizeAccountId(body.id);
+  // 아이디로 로그인한다. 예전 계정은 실명이 곧 아이디다.
+  const id = normalizeLoginId(body.id) ?? normalizeAccountId(body.id);
   const pin = typeof body.pin === "string" ? body.pin : "";
   if (!id || !PIN_PATTERN.test(pin))
-    return fail("이름(한글 실명)과 숫자 4자리를 확인해 주세요.");
+    return fail("아이디와 숫자 4자리를 확인해 주세요.");
 
   try {
     const store = getStore();
@@ -41,8 +44,12 @@ export async function POST(request: Request) {
       );
     }
 
-    // 같은 이름이 여럿이면 숫자 4자리가 맞는 계정을 찾는다
-    const account = await matchAccount(store, id, pin);
+    // 아이디가 정확히 맞는 계정을 먼저 보고, 없으면 예전에 같은 이름으로 가입한 계정 중 숫자가 맞는 것을 찾는다
+    const exact = await store.getAccount(id);
+    const account =
+      exact && (await hashPin(pin, exact.salt)) === exact.pinHash
+        ? exact
+        : await matchAccount(store, id, pin);
     if (!account) {
       const [fails] = await Promise.all([
         store.hit(`pin15:${id}`, 15 * 60),
@@ -51,7 +58,7 @@ export async function POST(request: Request) {
       const left = Math.max(0, FAILS_PER_15_MIN - fails);
       return fail(
         left > 0
-          ? `이름이나 숫자가 맞지 않아요. ${left}번 더 틀리면 15분 동안 잠겨요.`
+          ? `아이디나 숫자가 맞지 않아요. ${left}번 더 틀리면 15분 동안 잠겨요.`
           : "여러 번 틀려서 잠시 잠겼어요. 15분 뒤에 다시 시도해 주세요.",
         401,
       );
@@ -67,7 +74,8 @@ export async function POST(request: Request) {
       await mergeHost(store, deviceHost, account.hostHash);
     }
     return json({
-      id: displayName(account.id),
+      id: accountName(account),
+      loginId: account.id,
       token: await openSession(store, account.hostHash),
     });
   } catch (error) {

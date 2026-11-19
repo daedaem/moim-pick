@@ -49,6 +49,7 @@ export default function HostPage() {
   const [events, setEvents] = useState<HostEvent[]>([]);
   /** 로그인한 계정 아이디 (계정 없이 쓰는 중이면 빈 문자열) */
   const [account, setAccount] = useState("");
+  const [loginId, setLoginId] = useState("");
   /** 사이트 관리자 계정이면 모든 모임을 본다 */
   const [siteAdmin, setSiteAdmin] = useState(false);
   const [allEvents, setAllEvents] = useState<AdminEvent[]>([]);
@@ -79,6 +80,7 @@ export default function HostPage() {
       setBlocks(new Set<string>(body.blocks));
       setEvents(body.events);
       setAccount(typeof body.account === "string" ? body.account : "");
+      setLoginId(typeof body.loginId === "string" ? body.loginId : "");
       setSiteAdmin(body.siteAdmin === true);
       if (body.siteAdmin === true) {
         const all = await fetch("/api/admin/events", {
@@ -180,7 +182,7 @@ export default function HostPage() {
     void load(current);
     showToast(
       mode === "login"
-        ? `${accountId} 계정으로 로그인했어요`
+        ? `${accountId} 님, 로그인했어요`
         : `${accountId} 님, 가입됐어요`,
     );
   }
@@ -348,7 +350,10 @@ export default function HostPage() {
         <>
           <div className="account-bar">
             <span>
-              <strong>{account}</strong> 계정으로 로그인했어요
+              <strong>{account}</strong> 님
+              {loginId && loginId !== account && (
+                <span className="login-id"> · 아이디 {loginId}</span>
+              )}
               {siteAdmin && <span className="me">관리자</span>}
             </span>
             <button type="button" className="text-btn" onClick={logout}>

@@ -8,7 +8,7 @@ import {
   tooMany,
 } from "@/lib/api";
 import { confirmedOf, eventSlots, parseSlotKey } from "@/lib/slots";
-import { displayName } from "@/lib/account";
+import { accountName, displayName } from "@/lib/account";
 import { isSiteAdmin } from "@/lib/admin";
 import { getStore } from "@/lib/store";
 
@@ -26,8 +26,14 @@ export async function GET(request: Request) {
       store.getHostAccount(hostHash),
     ]);
     events.sort((a, b) => b.createdAt - a.createdAt);
+    const record = account ? await store.getAccount(account) : null;
     return json({
-      account: account ? displayName(account) : null,
+      account: record
+        ? accountName(record)
+        : account
+          ? displayName(account)
+          : null,
+      loginId: account,
       siteAdmin: isSiteAdmin(account),
       blocks: host?.blocks ?? [],
       events: events.map((e) => ({

@@ -1,4 +1,4 @@
-import { displayName } from "@/lib/account";
+import { accountName, displayName } from "@/lib/account";
 import {
   canManage,
   cleanLine,
@@ -38,6 +38,7 @@ export async function GET(request: Request, ctx: Ctx) {
       store.getVersion(id),
       event.hostHash ? store.getHostAccount(event.hostHash) : null,
     ]);
+    const hostRecord = hostKey ? await store.getAccount(hostKey) : null;
     responses.sort((a, b) => a.updatedAt - b.updatedAt);
     // 이름을 '모임장에게만' 공개한 응답은 모임장·본인 기기가 아니면 가린다
     const deviceToken = request.headers.get("x-device-token") ?? "";
@@ -68,7 +69,7 @@ export async function GET(request: Request, ctx: Ctx) {
       canManage: manage,
       hosted: Boolean(event.hostHash),
       version,
-      hostName: displayName(hostKey),
+      hostName: hostRecord ? accountName(hostRecord) : displayName(hostKey),
     };
     return json(payload);
   } catch (error) {

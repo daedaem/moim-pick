@@ -3,7 +3,9 @@ import type { getStore } from "./store";
 
 type Store = ReturnType<typeof getStore>;
 
-// 모임장 계정: 이름(실명) + 숫자 4자리.
+// 모임장 계정: 아이디 + 이름(실명) + 숫자 4자리.
+//  - 아이디: 로그인용, 겹치지 않는다. 이름: 모임원에게 보이고 겹쳐도 된다.
+//  - 예전에 이름으로만 가입한 계정은 그 이름이 아이디다 (그대로 로그인된다).
 // 숫자 4자리는 경우의 수가 1만 개뿐이라, 틀린 횟수를 세서 잠그는 것이 실제 방어선이다.
 //
 // 동명이인: 같은 이름으로도 가입할 수 있고, 로그인할 때 숫자 4자리로 구별한다.
@@ -23,6 +25,36 @@ export function normalizeAccountId(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const id = value.normalize("NFC").replace(/\s+/g, "");
   return /^[가-힣]{2,5}$/.test(id) ? id : null;
+}
+
+/** 아이디로 쓰지 못하게 막는 말 (사칭 방지) */
+const RESERVED_IDS = [
+  "관리자",
+  "운영자",
+  "모임픽",
+  "admin",
+  "moimpick",
+  "root",
+];
+
+/**
+ * 로그인 아이디 정리: 한글·영문·숫자·밑줄 2~12자, 영문은 소문자로 맞춘다.
+ * 새로 만들 때(strict)는 사칭하기 쉬운 말을 막는다.
+ */
+export function normalizeLoginId(
+  value: unknown,
+  strict = false,
+): string | null {
+  if (typeof value !== "string") return null;
+  const id = value.normalize("NFC").replace(/\s+/g, "").toLowerCase();
+  if (!/^[가-힣a-z0-9_]{2,12}$/.test(id)) return null;
+  if (strict && RESERVED_IDS.some((word) => id.includes(word))) return null;
+  return id;
+}
+
+/** 계정의 보이는 이름 */
+export function accountName(account: { id: string; name?: string }): string {
+  return account.name || displayName(account.id);
 }
 
 /** 화면에 보일 이름 (동명이인 꼬리표를 뺀다) */

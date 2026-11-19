@@ -9,14 +9,13 @@ import {
   tooMany,
 } from "@/lib/api";
 import {
-  accountKeyFor,
-  accountsByName,
   displayName,
   FAILS_PER_15_MIN,
   FAILS_PER_DAY,
   hashPin,
   newSalt,
   normalizeAccountId,
+  normalizeLoginId,
   openSession,
   PIN_PATTERN,
 } from "@/lib/account";
@@ -24,12 +23,17 @@ import { isSiteAdmin } from "@/lib/admin";
 import { getStore } from "@/lib/store";
 import type { HostAccount } from "@/lib/types";
 
-// 모임장 계정 만들기 (이름 + 숫자 4자리). 같은 이름이 있어도 숫자가 다르면 만들 수 있다.
+// 회원가입: 아이디(겹치지 않음) + 이름(실명, 겹쳐도 됨) + 숫자 4자리
 export async function POST(request: Request) {
   const body = await readBody(request);
   if (!body) return fail("요청 형식이 올바르지 않아요.");
-  const name = normalizeAccountId(body.id);
+  const id = normalizeLoginId(body.id, true);
+  const name = normalizeAccountId(body.name);
   const pin = typeof body.pin === "string" ? body.pin : "";
+  if (!id)
+    return fail(
+      "아이디는 한글·영문·숫자 2~12자로 정해 주세요. (관리자, 운영자 같은 말은 쓸 수 없어요)",
+    );
   if (!name) return fail("이름은 한글 실명으로 2~5자만 쓸 수 있어요.");
   if (!PIN_PATTERN.test(pin))
     return fail("비밀번호는 숫자 4자리로 정해 주세요.");
@@ -50,56 +54,22 @@ export async function POST(request: Request) {
         409,
       );
     }
-
-    // 같은 이름 + 같은 숫자는 로그인 때 구별할 수 없으므로 받지 않는다.
-    // (이걸로 남의 숫자를 알아내려는 시도를 막으려고 틀린 로그인과 같이 횟수를 센다)
-    const [recent, today] = await Promise.all([
-      store.peek(`pin15:${name}`),
-      store.peek(`pinday:${name}`),
-    ]);
-    if (recent >= FAILS_PER_15_MIN || today >= FAILS_PER_DAY)
-      return fail("잠시 뒤에 다시 시도해 주세요.", 429);
-    const sameName = await accountsByName(store, name);
-    for (const other of sameName) {
-      if ((await hashPin(pin, other.salt)) === other.pinHash) {
-        await Promise.all([
-          store.hit(`pin15:${name}`, 15 * 60),
-          store.hit(`pinday:${name}`, 24 * 60 * 60),
-        ]);
-        return fail(
-          "이 숫자는 쓸 수 없어요. 본인 계정이 있다면 로그인하고, 아니라면 다른 숫자로 정해 주세요.",
-          409,
-        );
-      }
-    }
-
     const hostHash = deviceHost || (await sha256(newAdminToken()));
     const salt = newSalt();
-    const pinHash = await hashPin(pin, salt);
-    let created: HostAccount | null = null;
-    for (let attempt = 0; attempt < 3 && !created; attempt++) {
-      const key = accountKeyFor(
-        name,
-        attempt > 0 || sameName.some((a) => a.id === name),
-      );
-      const account: HostAccount = {
-        id: key,
-        salt,
-        pinHash,
-        hostHash,
-        createdAt: Date.now(),
-      };
-      if (await store.createAccount(account)) created = account;
+    const account: HostAccount = {
+      id,
+      name,
+      salt,
+      pinHash: await hashPin(pin, salt),
+      hostHash,
+      createdAt: Date.now(),
+    };
+    if (!(await store.createAccount(account))) {
+      return fail("이미 쓰는 아이디예요. 다른 아이디로 정해 주세요.", 409);
     }
-    if (!created) return fail("잠시 뒤에 다시 시도해 주세요.", 503);
-    await store.setNameAccount(name, created.id, true);
-    await store.setHostAccount(hostHash, created.id);
+    await store.setHostAccount(hostHash, id);
     return json(
-      {
-        id: name,
-        sameName: sameName.length > 0,
-        token: await openSession(store, hostHash),
-      },
+      { id: name, loginId: id, token: await openSession(store, hostHash) },
       201,
     );
   } catch (error) {

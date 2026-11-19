@@ -1952,3 +1952,8 @@ span.cell.day {
   background: var(--field);
   color: var(--muted);
 }
+
+.login-id {
+  font-size: 13px;
+  color: var(--muted);
+}

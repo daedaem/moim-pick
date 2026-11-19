@@ -2,12 +2,20 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import Calendar, {
   type DayCell,
   type HalfTone,
 } from "@/app/components/Calendar";
 import DayEditor from "@/app/components/DayEditor";
+import NearbyFood from "@/app/components/NearbyFood";
 import StationPicker from "@/app/components/StationPicker";
 import { formatKorean, formatShort } from "@/lib/dates";
 import {
@@ -54,7 +62,10 @@ import {
 
 type View = "loading" | "name" | "relation" | "station" | "dates" | "result";
 
-const STEPS: View[] = ["name", "relation", "station", "dates"];
+/** 진행 막대에 보이는 단계: ① 나(이름·관계·출발역) ② 안 되는 날 */
+const STEPS: View[] = ["name", "dates"];
+/** 입력 중인 화면 전체 (관계·출발역은 날짜 화면에서 바로 고치는 보조 화면) */
+const INPUT_VIEWS: View[] = ["name", "relation", "station", "dates"];
 
 const BLOCK_TEXT: Record<BlockReason, string> = {
   busy: "모임장 불가",
@@ -66,6 +77,7 @@ const BLOCK_SHORT = "불가";
 
 type DraftInput = {
   name: string;
+  hidden?: boolean;
   relation: string;
   station: string;
   unavailable: string[];
@@ -80,6 +92,7 @@ function readDraft(eventId: string): DraftInput | null {
     const value = JSON.parse(raw) as Partial<DraftInput>;
     return {
       name: typeof value.name === "string" ? value.name : "",
+      hidden: value.hidden === true,
       relation: typeof value.relation === "string" ? value.relation : "",
       station: typeof value.station === "string" ? value.station : "",
       unavailable: Array.isArray(value.unavailable)
@@ -107,6 +120,16 @@ function clearDraft(eventId: string) {
   }
 }
 
+const subscribeNever = () => () => {};
+
+/** 다른 참여자에게 보일 가린 이름 (서버와 같은 규칙): "김민수" → "김*수" */
+function maskLabel(name: string): string {
+  const chars = [...name];
+  if (chars.length <= 1) return "*";
+  if (chars.length === 2) return `${chars[0]}*`;
+  return `${chars[0]}${"*".repeat(chars.length - 2)}${chars[chars.length - 1]}`;
+}
+
 /** 이 화면에서 히스토리에 쌓은 칸 수 (다른 화면에서 막 들어왔으면 0) */
 const histDepth = () =>
   (window.history.state as { mpDepth?: number } | null)?.mpDepth ?? 0;
@@ -124,11 +147,20 @@ export default function EventClient() {
   const [view, setView] = useState<View>("loading");
   const [name, setName] = useState("");
   const [relation, setRelation] = useState("");
+  const [hidden, setHidden] = useState(false); // 이름을 모임장에게만 공개
   const [station, setStation] = useState("");
   /** 안 된다고 표시한 칸 ("날짜:시간대") */
   const [unavailable, setUnavailable] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [renaming, setRenaming] = useState<string | null>(null); // 바꾸는 중인 모임 이름
+  const [justSaved, setJustSaved] = useState(false); // 방금 내 응답을 저장함 → 초대 카드
+  const [invited, setInvited] = useState(false); // 초대 카드에서 보내기·복사를 눌렀음
+  // 방금 만든 모임(?new=1)이면 초대 카드를 먼저 보여 준다
+  const justCreated = useSyncExternalStore(
+    subscribeNever,
+    () => window.location.search.includes("new=1"),
+    () => false,
+  );
   const [editExpected, setEditExpected] = useState(""); // 바꾸는 중인 예상 인원
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
@@ -290,9 +322,10 @@ export default function EventClient() {
       const draft = readDraft(event.id);
       const resumed = (window.history.state as { mpView?: View } | null)
         ?.mpView;
-      if (draft && resumed && STEPS.includes(resumed)) {
+      if (draft && resumed && INPUT_VIEWS.includes(resumed)) {
         setName(draft.name);
         setRelation(draft.relation);
+        setHidden(draft.hidden === true);
         setStation(draft.station);
         setUnavailable(new Set(draft.unavailable));
         show(resumed);
@@ -301,6 +334,7 @@ export default function EventClient() {
 
       if (mine) {
         setRelation(mine.relation);
+        setHidden(mine.hidden === true);
         setStation(mine.station);
         setUnavailable(new Set(mine.unavailable));
         settle("result");
@@ -319,14 +353,15 @@ export default function EventClient() {
 
   // 입력하는 동안 적은 내용을 이 탭에 적어 둔다 (새로고침해도 사라지지 않게)
   useEffect(() => {
-    if (!restored.current || !STEPS.includes(view)) return;
+    if (!restored.current || !INPUT_VIEWS.includes(view)) return;
     writeDraft(id, {
       name,
+      hidden,
       relation,
       station,
       unavailable: [...unavailable],
     });
-  }, [id, view, name, relation, station, unavailable]);
+  }, [id, view, name, hidden, relation, station, unavailable]);
 
   // 다른 사람이 응답하면 반영되도록, 화면을 보고 있는 동안 주기적으로 확인한다.
   // 서버 부담을 줄이려고 평소에는 "바뀌었는지"만 묻고(번호 비교), 바뀐 경우에만 전체를 다시 불러온다.
@@ -385,6 +420,8 @@ export default function EventClient() {
   }, [id, load]);
 
   const event = data?.event ?? null;
+  /** "조해성님" 또는 이름을 모르면 "모임장" */
+  const hostLabel = data?.hostName ? `${data.hostName}님` : "모임장";
   const responses = useMemo(() => data?.responses ?? [], [data]);
   const dates = useMemo(() => event?.dates ?? [], [event]);
   const slots = useMemo(
@@ -517,6 +554,10 @@ export default function EventClient() {
     }
     return map;
   }, [focusDate, slots, blocked, responses]);
+  /** 맛집 찾기에 쓸 역: 보고 있는 날의 첫 번째 추천 역 */
+  const foodStation =
+    [...meetingBySlot.values()].find((list) => list.length > 0)?.[0]?.name ??
+    "";
 
   function toggle(key: string) {
     setUnavailable((prev) => {
@@ -559,6 +600,7 @@ export default function EventClient() {
     const found = responses.find((r) => r.name === target);
     setName(target);
     setRelation(found?.relation ?? "");
+    setHidden(found?.hidden === true);
     setStation(found?.station ?? "");
     setUnavailable(new Set(found?.unavailable ?? []));
     // 관계를 아직 안 적은 예전 응답은 관계부터 묻는다
@@ -597,11 +639,15 @@ export default function EventClient() {
     setName(trimmedName);
     if (existing) {
       // 이미 응답한 이름이면 그 응답을 이어서 고친다
-      setRelation(existing.relation);
-      setStation(existing.station);
+      setRelation(existing.relation || relation);
+      setHidden(existing.hidden === true);
+      setStation(existing.station || station);
       setUnavailable(new Set(existing.unavailable));
+    } else if (!relation) {
+      setFormError(`${hostLabel}과의 관계를 골라 주세요.`);
+      return;
     }
-    go("relation");
+    go("dates");
   }
 
   function markBlockedSeen() {
@@ -623,6 +669,7 @@ export default function EventClient() {
         headers: authHeaders(trimmedName),
         body: JSON.stringify({
           name: trimmedName,
+          hidden,
           relation,
           station,
           // 모임장 일정으로 빠진 칸은 보내지 않는다
@@ -649,6 +696,7 @@ export default function EventClient() {
       clearDraft(event.id);
       settle("result");
       showToast(forOther ? `${trimmedName}님 응답을 고쳤어요` : "저장했어요");
+      if (!forOther) setJustSaved(true);
     } catch {
       setFormError(
         "연결이 끊겼어요. 인터넷 상태를 확인하고 다시 시도해 주세요.",
@@ -773,13 +821,24 @@ export default function EventClient() {
     }
   }
 
-  // 휴대폰에서는 공유 창(카카오톡 등)을 띄우고, 안 되면 링크를 복사한다
-  const shareLink = async () => {
+  /** 단톡방에 그대로 붙여 넣을 초대 문구 */
+  const inviteText = () => {
     const url = window.location.origin + window.location.pathname;
+    const who = data?.hostName ? `${data.hostName}님의 ` : "";
+    return {
+      url,
+      text: `${who}'${event?.title ?? "모임"}' 날짜를 정하고 있어요.\n안 되는 날만 눌러 주세요. 1분이면 끝나요!`,
+    };
+  };
+
+  // 휴대폰에서는 공유 창(카카오톡 등)을 띄우고, 안 되면 문구와 링크를 복사한다
+  const shareLink = async () => {
+    const { url, text } = inviteText();
     if (typeof navigator.share === "function") {
       try {
         await navigator.share({
           title: `${event?.title ?? "모임"} 날짜 정하기`,
+          text,
           url,
         });
         return;
@@ -787,7 +846,11 @@ export default function EventClient() {
         if ((error as Error)?.name === "AbortError") return; // 공유 창을 그냥 닫음
       }
     }
-    await copy(url, "링크를 복사했어요");
+    await copy(`${text}\n${url}`, "초대 문구와 링크를 복사했어요");
+  };
+  const copyInvite = () => {
+    const { url, text } = inviteText();
+    void copy(`${text}\n${url}`, "초대 문구와 링크를 복사했어요");
   };
   const copyAdminLink = () =>
     copy(
@@ -829,9 +892,11 @@ export default function EventClient() {
 
   // ---------- 입력 단계 ----------
   if (view !== "result") {
-    const stepIndex = STEPS.indexOf(view);
+    const stepIndex = view === "name" ? 0 : 1;
     const back = () =>
-      goBackTo(stepIndex === 0 ? "result" : STEPS[stepIndex - 1]);
+      goBackTo(
+        view === "name" ? "result" : view === "dates" ? "name" : "dates", // 관계·출발역 고치기 화면은 날짜 화면으로 돌아간다
+      );
     const noCount = openKeys.filter((key) => unavailable.has(key)).length;
     const okCount = openKeys.length - noCount;
     const hasBlocked = Object.keys(blocked).length > 0;
@@ -933,11 +998,6 @@ export default function EventClient() {
                 이미 응답한 이름이에요. 계속하면 그 응답을 고쳐요.
               </p>
             )}
-            <p className="privacy-note">
-              적은 이름·관계·출발역·안 되는 시간은 이 모임 링크를 가진 사람에게
-              보이고, 마지막으로 바뀐 뒤 120일이 지나면 자동으로 지워져요.{" "}
-              <Link href="/privacy">개인정보 안내</Link>
-            </p>
             {nameIdea && existing && !canEdit(existing.name) && (
               <button
                 type="button"
@@ -951,13 +1011,72 @@ export default function EventClient() {
                 &lsquo;{nameIdea}&rsquo; 이름으로 할게요
               </button>
             )}
+
+            <div
+              className="segmented two name-scope"
+              role="radiogroup"
+              aria-label="이름 공개 범위"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!hidden}
+                className={`segment${!hidden ? " on" : ""}`}
+                onClick={() => setHidden(false)}
+              >
+                모두에게 이름 공개
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={hidden}
+                className={`segment${hidden ? " on" : ""}`}
+                onClick={() => setHidden(true)}
+              >
+                {hostLabel}에게만
+              </button>
+            </div>
+            <p className="hint">
+              {hidden
+                ? `${hostLabel}에게만 이름이 보이고, 다른 참여자에게는 '${trimmedName ? maskLabel(trimmedName) : "김*수"}'처럼 가려져요.`
+                : "이 모임 링크를 가진 사람 모두에게 이름이 보여요."}
+            </p>
+
+            <p className="field-label step-label">{hostLabel}과의 관계</p>
+            <div className="chips step-chips" role="group" aria-label="관계">
+              {RELATIONS.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={`chip${relation === item ? " on" : ""}`}
+                  aria-pressed={relation === item}
+                  onClick={() => {
+                    setRelation(item);
+                    setFormError("");
+                  }}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+
+            <p className="field-label step-label">
+              출발역 <span className="optional">선택</span>
+            </p>
+            <StationPicker value={station} onChange={setStation} />
+            <p className="hint">적으면 모두 모이기 좋은 역을 추천해 드려요.</p>
+            <p className="privacy-note">
+              적은 이름·관계·출발역·안 되는 시간은 이 모임 링크를 가진 사람에게
+              보이고, 마지막으로 바뀐 뒤 120일이 지나면 자동으로 지워져요.{" "}
+              <Link href="/privacy">개인정보 안내</Link>
+            </p>
           </>
         )}
 
         {view === "relation" && (
           <>
             <h1 className="question">
-              {trimmedName}님은 모임장과
+              {trimmedName}님은 {hostLabel}과
               <br />
               어떤 사이인가요?
             </h1>
@@ -970,8 +1089,8 @@ export default function EventClient() {
                     aria-pressed={relation === item}
                     onClick={() => {
                       setRelation(item);
-                      // 고른 것이 눈에 보인 뒤에 다음으로 넘어간다
-                      setTimeout(() => go("station"), 280);
+                      // 고른 것이 눈에 보인 뒤에 날짜 화면으로 돌아간다
+                      setTimeout(() => goBackTo("dates"), 280);
                     }}
                   >
                     {item}
@@ -1128,26 +1247,26 @@ export default function EventClient() {
                 onClick={submitName}
                 disabled={!trimmedName}
               >
-                다음
+                다음: 안 되는 날 고르기
               </button>
             )}
             {view === "relation" && (
               <button
                 type="button"
                 className="btn primary block"
-                onClick={() => go("station")}
+                onClick={() => goBackTo("dates")}
                 disabled={!relation}
               >
-                다음
+                확인
               </button>
             )}
             {view === "station" && (
               <button
                 type="button"
                 className="btn primary block"
-                onClick={() => go("dates")}
+                onClick={() => goBackTo("dates")}
               >
-                {station ? "다음" : "건너뛰기"}
+                {station ? "확인" : "출발역 없이 하기"}
               </button>
             )}
             {view === "dates" && (
@@ -1269,6 +1388,45 @@ export default function EventClient() {
         </div>
       )}
 
+      {!confirmed &&
+        !invited &&
+        ((justCreated && manage && total === 0) || justSaved) && (
+          <div className="card invite-card">
+            <p className="invite-title">
+              {justCreated && !justSaved
+                ? "모임을 만들었어요. 이제 링크를 보내 주세요"
+                : "다른 사람들에게도 보내 주세요"}
+            </p>
+            <p className="invite-sub">
+              {justCreated && !justSaved
+                ? "단톡방에 보내면 각자 안 되는 날만 누르면 돼요. 가입은 필요 없어요."
+                : "응답이 모일수록 추천이 정확해져요. 누구나 이 링크를 보낼 수 있어요."}
+            </p>
+            <div className="btn-row">
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => {
+                  setInvited(true);
+                  void shareLink();
+                }}
+              >
+                링크 보내기
+              </button>
+              <button
+                type="button"
+                className="btn soft"
+                onClick={() => {
+                  setInvited(true);
+                  copyInvite();
+                }}
+              >
+                문구 복사
+              </button>
+            </div>
+          </div>
+        )}
+
       {confirmed ? (
         <div className="summary good confirmed">
           <p className="summary-sub">확정했어요</p>
@@ -1281,7 +1439,7 @@ export default function EventClient() {
             공지 문구 복사
           </button>
         </div>
-      ) : (
+      ) : total === 0 && justCreated && manage && !invited ? null : (
         <div
           className={`summary${total > 0 && perfectDays > 0 ? " good" : ""}`}
         >
@@ -1311,6 +1469,15 @@ export default function EventClient() {
             </>
           )}
           {progressText && <p className="summary-progress">{progressText}</p>}
+        </div>
+      )}
+
+      {confirmed?.station && (
+        <div className="card">
+          <NearbyFood
+            station={stationLabel(confirmed.station)}
+            title="모일 곳 근처 맛집"
+          />
         </div>
       )}
 
@@ -1465,7 +1632,7 @@ export default function EventClient() {
                   ) : !drafting ? (
                     <button
                       type="button"
-                      className="btn primary block confirm-btn"
+                      className={`btn ${total > 0 ? "primary" : "soft"} block confirm-btn`}
                       onClick={() =>
                         setDraft({
                           date: focusDate,
@@ -1575,6 +1742,9 @@ export default function EventClient() {
               </div>
             );
           })}
+          {!confirmed && !draft && foodStation && (
+            <NearbyFood station={stationLabel(foodStation)} />
+          )}
           {withStation > 0 && (
             <p className="fineprint">
               모이기 좋은 역은 출발역을 적은 {withStation}명 중 그때 되는
@@ -1605,6 +1775,9 @@ export default function EventClient() {
                     <span className="row-main">
                       {r.name}
                       {mine?.name === r.name && <span className="me">나</span>}
+                      {r.hidden && !r.masked && (
+                        <span className="me muted">이름 비공개</span>
+                      )}
                     </span>
                     <span className="row-sub">
                       {[r.relation, r.station && stationLabel(r.station)]

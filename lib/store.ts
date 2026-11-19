@@ -18,6 +18,7 @@ export class StoreNotConfiguredError extends Error {
 
 type StoredResponse = {
   relation?: string;
+  hidden?: boolean;
   station?: string;
   unavailable: string[];
   updatedAt: number;
@@ -42,7 +43,10 @@ interface Store {
   setIndexed(event: MoimEvent, indexed: boolean): Promise<void>;
   /** 검색 목록에 있는 최근 모임들 (최신순) */
   listIndexed(limit: number): Promise<MoimEvent[]>;
-  listResponses(id: string): Promise<MoimResponse[]>;
+  /** 응답 목록. deviceHash는 서버 안에서만 쓰고 내보내지 않는다 */
+  listResponses(
+    id: string,
+  ): Promise<(MoimResponse & { deviceHash?: string })[]>;
   countResponses(id: string): Promise<number>;
   /** 응답이 없으면 null. 있으면 수정 토큰 해시와 기기 해시(예전 응답은 빈 문자열) */
   getResponseMeta(id: string, name: string): Promise<ResponseMeta | null>;
@@ -251,6 +255,9 @@ function redisStore(redis: Redis): Store {
         station: typeof value?.station === "string" ? value.station : "",
         unavailable: Array.isArray(value?.unavailable) ? value.unavailable : [],
         updatedAt: Number(value?.updatedAt) || 0,
+        hidden: value?.hidden === true,
+        deviceHash:
+          typeof value?.deviceHash === "string" ? value.deviceHash : "",
       }));
     },
     async countResponses(id) {
@@ -280,6 +287,7 @@ function redisStore(redis: Redis): Store {
         station: response.station,
         unavailable: response.unavailable,
         updatedAt: response.updatedAt,
+        hidden: response.hidden === true,
       };
       await redis.hset(responsesKey(id), { [response.name]: value });
       await Promise.all([
@@ -449,6 +457,8 @@ function memoryStore(): Store {
         station: v.station ?? "",
         unavailable: v.unavailable,
         updatedAt: v.updatedAt,
+        hidden: v.hidden === true,
+        deviceHash: v.deviceHash ?? "",
       }));
     },
     async countResponses(id) {
@@ -473,6 +483,7 @@ function memoryStore(): Store {
         station: response.station,
         unavailable: response.unavailable,
         updatedAt: response.updatedAt,
+        hidden: response.hidden === true,
       });
       await bump(id);
     },

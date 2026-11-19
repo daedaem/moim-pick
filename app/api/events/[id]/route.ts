@@ -1,3 +1,4 @@
+import { displayName } from "@/lib/account";
 import {
   canManage,
   cleanLine,
@@ -30,23 +31,44 @@ export async function GET(request: Request, ctx: Ctx) {
       return fail("모임을 찾을 수 없어요. 링크가 맞는지 확인해 주세요.", 404);
     // 검색 기능이 생기기 전에 만든 모임도 한 번 열리면 검색 목록에 올린다
     if (event.searchable === undefined) await store.setIndexed(event, true);
-    const [responses, blocked, manage, version] = await Promise.all([
+    const [responses, blocked, manage, version, hostKey] = await Promise.all([
       store.listResponses(id),
       blockedFor(event, store),
       canManage(request, event, store),
       store.getVersion(id),
+      event.hostHash ? store.getHostAccount(event.hostHash) : null,
     ]);
     responses.sort((a, b) => a.updatedAt - b.updatedAt);
+    // 이름을 '모임장에게만' 공개한 응답은 모임장·본인 기기가 아니면 가린다
+    const deviceToken = request.headers.get("x-device-token") ?? "";
+    const myDevice = /^[0-9a-f]{20,64}$/.test(deviceToken)
+      ? await sha256(deviceToken)
+      : "";
+    const used = new Set<string>();
     const payload: EventPayload = {
       event: { ...publicEvent(event), slots: eventSlots(event) },
-      responses: responses.map((r) => ({
-        ...r,
-        unavailable: normalizeUnavailable(event, r.unavailable),
-      })),
+      responses: responses.map(({ deviceHash, ...r }) => {
+        const mine = Boolean(myDevice && deviceHash === myDevice);
+        const masked = Boolean(r.hidden && !manage && !mine);
+        let name = r.name;
+        if (masked) {
+          const base = maskName(r.name);
+          name = base;
+          for (let n = 2; used.has(name); n++) name = `${base} (${n})`;
+        }
+        used.add(name);
+        return {
+          ...r,
+          name,
+          masked,
+          unavailable: normalizeUnavailable(event, r.unavailable),
+        };
+      }),
       blocked,
       canManage: manage,
       hosted: Boolean(event.hostHash),
       version,
+      hostName: displayName(hostKey),
     };
     return json(payload);
   } catch (error) {
@@ -167,4 +189,12 @@ export async function PATCH(request: Request, ctx: Ctx) {
   } catch (error) {
     return handleError(error);
   }
+}
+
+/** "김민수" → "김*수", "김수" → "김*" */
+function maskName(name: string): string {
+  const chars = [...name];
+  if (chars.length <= 1) return "*";
+  if (chars.length === 2) return `${chars[0]}*`;
+  return `${chars[0]}${"*".repeat(chars.length - 2)}${chars[chars.length - 1]}`;
 }

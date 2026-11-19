@@ -31,6 +31,10 @@ export type MoimResponse = {
   /** 안 되는 칸 ("날짜:시간대", 예: "2026-11-23:D") */
   unavailable: string[];
   updatedAt: number;
+  /** true면 이름을 모임장에게만 보이고, 다른 참여자에게는 "김*수"처럼 가린다 */
+  hidden?: boolean;
+  /** 화면용: 이 이름이 가려진 것인지 (서버가 채운다) */
+  masked?: boolean;
 };
 
 /** 고를 수 없는 칸의 이유: busy = 모임장 일정, fixed = 모임장의 다른 모임이 그날로 확정됨 */
@@ -47,6 +51,8 @@ export type EventPayload = {
   hosted: boolean;
   /** 화면 내용이 바뀔 때마다 오르는 번호 (자동 새로고침용) */
   version: number;
+  /** 모임을 만든 사람의 이름 (계정 이름, 없으면 빈 문자열) */
+  hostName: string;
 };
 
 /** 모임장이 모임과 상관없이 안 되는 칸 등 */

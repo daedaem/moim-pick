@@ -115,6 +115,7 @@ export async function PUT(request: Request, ctx: Ctx) {
       station,
       unavailable,
       updatedAt: Date.now(),
+      hidden: body.hidden === true,
     };
     await store.putResponse(id, response, meta);
     return json({ response, editToken });

@@ -191,7 +191,7 @@ export default function HomePage() {
       setMemo("");
       setExpected("");
       setBusy(false);
-      router.replace(`/e/${data.event.id}`);
+      router.replace(`/e/${data.event.id}?new=1`);
     } catch {
       setError("연결이 끊겼어요. 인터넷 상태를 확인하고 다시 시도해 주세요.");
       setBusy(false);
@@ -406,12 +406,12 @@ export default function HomePage() {
       </div>
 
       <h1 className="headline">
-        어떤 모임에
+        모임 날짜와 장소,
         <br />
-        오셨나요?
+        링크 하나로 정해요
       </h1>
       <p className="lead">
-        모임 이름을 검색해서 들어가세요. 없으면 새로 만들 수 있어요.
+        카톡 투표 대신 링크를 보내면, 각자 안 되는 날만 누르고 끝나요.
       </p>
 
       <input
@@ -523,6 +523,26 @@ export default function HomePage() {
           <Link href="/login?join=1">회원가입</Link>
         </p>
       )}
+      {!account && recent.length === 0 && !q && (
+        <section className="section">
+          <h2 className="section-title">이렇게 정해요</h2>
+          <ol className="card how">
+            <li>
+              <b>모임을 만들고 링크를 보내요</b>
+              <span>후보 기간과 점심·저녁만 고르면 돼요.</span>
+            </li>
+            <li>
+              <b>각자 안 되는 날만 눌러요</b>
+              <span>가입 없이 1분이면 끝나요.</span>
+            </li>
+            <li>
+              <b>모두 되는 날과 모일 역을 바로 봐요</b>
+              <span>확정하면 공지 문구와 근처 맛집까지 이어져요.</span>
+            </li>
+          </ol>
+        </section>
+      )}
+
       <p className="credit center">
         <Link href="/privacy">개인정보 안내</Link>
       </p>

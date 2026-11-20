@@ -1196,11 +1196,17 @@ export default function EventClient() {
 
         {view === "dates" && (
           <>
-            <h1 className="question">안 되는 날을 눌러 주세요</h1>
+            <h1 className="question">
+              안 되는 날이 있으면
+              <br />
+              눌러 주세요
+            </h1>
             <p className="lead">
-              {twoSlots
-                ? "날짜를 누르면 하루 전체가 바뀌고, 아래에서 점심·저녁만 따로 고칠 수 있어요."
-                : `${slotWord} 모임이에요. 다 괜찮으면 그대로 저장하면 돼요.`}
+              지금은 전부 되는 날(초록)로 되어 있어요.{" "}
+              <strong>다 괜찮으면 아무것도 누르지 말고 바로 저장</strong>하면
+              돼요.
+              {twoSlots &&
+                " 날짜를 누르면 하루 전체가 바뀌고, 아래에서 점심·저녁만 따로 고칠 수 있어요."}
             </p>
             {/* 날짜 화면에서 바로 관계·출발역도 바꿀 수 있게 한다 */}
             <div className="mine-info">
@@ -1327,7 +1333,7 @@ export default function EventClient() {
                 onClick={submitName}
                 disabled={!trimmedName}
               >
-                다음: 안 되는 날 고르기
+                다음: 날짜 확인하기
               </button>
             )}
             {view === "relation" && (
@@ -1356,7 +1362,11 @@ export default function EventClient() {
                 onClick={save}
                 disabled={saving}
               >
-                {saving ? "저장 중…" : "저장하기"}
+                {saving
+                  ? "저장 중…"
+                  : noCount === 0
+                    ? "전부 되는 걸로 저장하기"
+                    : "저장하기"}
               </button>
             )}
           </div>

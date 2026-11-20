@@ -133,11 +133,20 @@ export function recommendMeetingPoints(
   // 정거장 수가 비슷하면(1정거장 차이까지) 환승역을 먼저 추천한다. 실제로 모이기 편한 곳은 대개 환승역이라서.
   const bestMax = Math.min(...scored.map((row) => row.max));
   const isHub = (index: number) => stations[index][3].length >= 2;
+  // 사람들이 직접 고른 역은 "가고 싶은 곳"이기도 하므로, 거리가 비슷하면(2정거장 차이까지) 많이 고른 역을 먼저 추천한다
+  const votes = new Map<number, number>();
+  for (const list of people)
+    for (const s of new Set(list)) votes.set(s, (votes.get(s) ?? 0) + 1);
+  const wanted = (row: { index: number; max: number }) =>
+    people.length > 1 && row.max <= bestMax + 2
+      ? (votes.get(row.index) ?? 0)
+      : 0;
   const tier = (row: { index: number; max: number }) =>
     // 모두 같은 역에서 출발하면(bestMax 0) 그 역이 답이므로 환승역 우선을 적용하지 않는다
     bestMax > 0 && row.max <= bestMax + 1 && isHub(row.index) ? 0 : 1;
   scored.sort(
     (x, y) =>
+      wanted(y) - wanted(x) ||
       tier(x) - tier(y) ||
       x.max - y.max ||
       x.sum - y.sum ||

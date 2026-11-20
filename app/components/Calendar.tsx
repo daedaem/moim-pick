@@ -22,7 +22,7 @@ export type DayCell = {
   halves: HalfTone[];
   /** 숫자 아래 작은 글씨 */
   sub: string;
-  subTone?: "blue" | "red" | "ink" | "muted";
+  subTone?: "blue" | "red" | "green" | "ink" | "muted";
   /** 화면 낭독용 설명 */
   label: string;
   disabled?: boolean;

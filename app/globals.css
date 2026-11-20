@@ -12,6 +12,8 @@
   --blue-soft: #e9f1ff;
   --red: #dd3b42;
   --red-soft: #fdecec;
+  --green: #12a150;
+  --green-soft: #e3f6ea;
   --radius: 20px;
   --font:
     "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont,
@@ -2049,4 +2051,68 @@ span.cell.day {
 
 .taste-chip b {
   color: var(--blue);
+}
+
+/* 파란 요약 카드 안의 응답 현황은 흰 글씨로 */
+.summary.good .summary-progress {
+  border-top-color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* 확정 카드의 버튼들 */
+.confirmed-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.confirmed-actions .btn {
+  margin-top: 0;
+  text-decoration: none;
+  display: inline-grid;
+  place-items: center;
+}
+
+.btn.ghost-white {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.chip-count {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+/* 입력 화면: 되는 날은 초록, 안 되는 날은 빨강으로 또렷하게 */
+.disc.single.ok {
+  background: var(--green-soft);
+  color: #0b6b35;
+}
+
+.arc.ok {
+  background: var(--green);
+}
+
+.cell .sub.green {
+  font-weight: 700;
+  color: #0b6b35;
+}
+
+.slot-btn:not(.no):not(.locked) {
+  background: var(--green-soft);
+  color: #0b6b35;
+}
+
+/* 지금 고치고 있는 날은 굵은 테두리와 살짝 키워서 보여 준다 */
+.cell.day.selected .disc {
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 4px var(--ink);
+}
+
+.slot-btn:not(.no):not(.locked) .slot-state {
+  color: inherit;
 }

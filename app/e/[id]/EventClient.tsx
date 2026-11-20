@@ -177,6 +177,7 @@ export default function EventClient() {
   const [formError, setFormError] = useState("");
   const [toast, setToast] = useState("");
   const [picked, setPicked] = useState<string | null>(null);
+  const [barOff, setBarOff] = useState(false); // 날짜 요약 띠를 이미 눌렀거나 필요 없음
   const [adminToken, setAdminToken] = useState("");
   const [isHost, setIsHost] = useState(false);
   const [confirming, setConfirming] = useState(""); // "event" 또는 지우려는 사람 이름
@@ -262,10 +263,22 @@ export default function EventClient() {
     return () => window.removeEventListener("popstate", onPop);
   }, [show]);
 
+  /** 지난번에 불러왔을 때의 응답자 이름 (새 응답 알림용) */
+  const knownNames = useRef<string[] | null>(null);
   const apply = useCallback(
     (result: FetchResult) => {
       if (result.ok) {
         setLoadError("");
+        // 화면을 보는 동안 새로 들어온 응답을 알려 준다
+        const before = knownNames.current;
+        const now = result.payload.responses.map((r) => r.name);
+        if (before) {
+          const added = now.filter((n) => !before.includes(n));
+          if (added.length === 1) showToast(`${added[0]}님이 응답했어요`);
+          else if (added.length > 1)
+            showToast(`${added.length}명이 새로 응답했어요`);
+        }
+        knownNames.current = now;
         setData(result.payload);
         return;
       }
@@ -279,7 +292,7 @@ export default function EventClient() {
         result.network ? prev || result.error : result.error,
       );
     },
-    [id],
+    [id, showToast],
   );
 
   const load = useCallback(async () => {
@@ -779,6 +792,10 @@ export default function EventClient() {
       await load();
       window.scrollTo({ top: 0 });
       showToast(next ? "확정했어요" : "확정을 취소했어요");
+      if (next) {
+        setPicked(null);
+        window.scrollTo({ top: 0 });
+      }
     } catch {
       showToast("연결이 끊겼어요. 다시 시도해 주세요.");
     } finally {
@@ -962,6 +979,7 @@ export default function EventClient() {
         checkCells.set(date, {
           halves,
           sub: "가능",
+          subTone: "green",
           label: "되는 날",
         });
       } else {
@@ -1392,6 +1410,35 @@ export default function EventClient() {
   const notice = confirmed
     ? `[${event.title}] ${confirmedText}${confirmed.station ? "에서" : "에"} 만나요!${event.memo ? ` (${event.memo})` : ""}`
     : "";
+  /** 확정 내용을 단톡방으로 보낸다 (공유 창이 없으면 복사) */
+  const shareNotice = async () => {
+    const url = window.location.origin + window.location.pathname;
+    if (typeof navigator.share === "function") {
+      try {
+        await navigator.share({ title: event.title, text: notice, url });
+        return;
+      } catch (error) {
+        if ((error as Error)?.name === "AbortError") return;
+      }
+    }
+    await copy(`${notice}\n${url}`, "공지 문구와 링크를 복사했어요");
+  };
+  /** 구글 캘린더에 넣는 링크. 시간은 어림값(점심 12시, 저녁 7시)이라 캘린더에서 고치면 된다 */
+  const calendarUrl = (() => {
+    if (!confirmed) return "";
+    const day = confirmed.date.replaceAll("-", "");
+    const [from, to] =
+      confirmed.slot === "L" ? ["120000", "133000"] : ["190000", "210000"];
+    const params = new URLSearchParams({
+      action: "TEMPLATE",
+      text: event.title,
+      dates: `${day}T${from}/${day}T${to}`,
+      ctz: "Asia/Seoul",
+      location: confirmed.station ? stationLabel(confirmed.station) : "",
+      details: event.memo ?? "",
+    });
+    return `https://calendar.google.com/calendar/render?${params}`;
+  })();
 
   // 내가 응답한 뒤에 모임장 일정으로 새로 빠진 칸
   const newlyBlocked =
@@ -1495,13 +1542,30 @@ export default function EventClient() {
         <div className="summary good confirmed">
           <p className="summary-sub">확정했어요</p>
           <p className="summary-main">{confirmedText}</p>
-          <button
-            type="button"
-            className="btn white small"
-            onClick={() => copy(notice, "공지 문구를 복사했어요")}
-          >
-            공지 문구 복사
-          </button>
+          <div className="confirmed-actions">
+            <button
+              type="button"
+              className="btn white small"
+              onClick={shareNotice}
+            >
+              공지 보내기
+            </button>
+            <button
+              type="button"
+              className="btn ghost-white small"
+              onClick={() => copy(notice, "공지 문구를 복사했어요")}
+            >
+              문구 복사
+            </button>
+            <a
+              className="btn ghost-white small"
+              href={calendarUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              캘린더에 추가
+            </a>
+          </div>
         </div>
       ) : total === 0 && justCreated && manage && !invited ? null : (
         <div
@@ -1558,6 +1622,7 @@ export default function EventClient() {
                   className="row-button pick"
                   onClick={() => {
                     setPicked(p.date);
+                    setBarOff(true);
                     document
                       .getElementById("detail")
                       ?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1623,7 +1688,10 @@ export default function EventClient() {
           dates={dates}
           cells={cells}
           selected={focusDate}
-          onSelect={setPicked}
+          onSelect={(date) => {
+            setPicked(date);
+            setBarOff(false);
+          }}
         />
         <p className="legend">
           <span className="legend-item">
@@ -1730,7 +1798,7 @@ export default function EventClient() {
                   ) : !drafting ? (
                     <button
                       type="button"
-                      className={`btn ${total > 0 ? "primary" : "soft"} block confirm-btn`}
+                      className="btn soft block confirm-btn"
                       onClick={() =>
                         setDraft({
                           date: focusDate,
@@ -1748,26 +1816,40 @@ export default function EventClient() {
                     <div className="confirm-panel">
                       <p className="confirm-title">어디서 모일까요?</p>
                       <div className="chips">
-                        {meeting.map((point) => (
-                          <button
-                            type="button"
-                            key={point.name}
-                            className={`chip${!drafting.searching && drafting.station === point.name ? " on" : ""}`}
-                            aria-pressed={
-                              !drafting.searching &&
-                              drafting.station === point.name
-                            }
-                            onClick={() =>
-                              setDraft({
-                                ...drafting,
-                                station: point.name,
-                                searching: false,
-                              })
-                            }
-                          >
-                            {stationLabel(point.name)}
-                          </button>
-                        ))}
+                        {[
+                          ...meeting.map((point) => point.name),
+                          // 많이 고른 장소도 후보로 보여 준다
+                          ...popular
+                            .map(([name]) => name)
+                            .filter((n) => !meeting.some((m) => m.name === n)),
+                        ]
+                          .map((name) => ({ name }))
+                          .map((point) => (
+                            <button
+                              type="button"
+                              key={point.name}
+                              className={`chip${!drafting.searching && drafting.station === point.name ? " on" : ""}`}
+                              aria-pressed={
+                                !drafting.searching &&
+                                drafting.station === point.name
+                              }
+                              onClick={() =>
+                                setDraft({
+                                  ...drafting,
+                                  station: point.name,
+                                  searching: false,
+                                })
+                              }
+                            >
+                              {stationLabel(point.name)}
+                              {popular.find(([n]) => n === point.name) && (
+                                <span className="chip-count">
+                                  {popular.find(([n]) => n === point.name)![1]}
+                                  명 선택
+                                </span>
+                              )}
+                            </button>
+                          ))}
                         <button
                           type="button"
                           className={`chip${drafting.searching ? " on" : ""}`}
@@ -2063,11 +2145,12 @@ export default function EventClient() {
 
       <div className="cta-bar">
         <div className="cta-inner">
-          {picked && focusDate === picked && (
+          {picked && focusDate === picked && !barOff && !confirmed && (
             <button
               type="button"
               className="pick-bar"
-              onClick={() =>
+              onClick={() => {
+                setBarOff(true);
                 document.getElementById("detail")?.scrollIntoView({
                   block: "start",
                   behavior: window.matchMedia(
@@ -2075,8 +2158,8 @@ export default function EventClient() {
                   ).matches
                     ? "auto"
                     : "smooth",
-                })
-              }
+                });
+              }}
             >
               <span className="pick-text">
                 <span className="pick-date">{formatKorean(picked)}</span>
@@ -2102,18 +2185,28 @@ export default function EventClient() {
               </span>
             </button>
           )}
-          <div className="cta-two">
-            <button type="button" className="btn soft" onClick={shareLink}>
-              초대하기
-            </button>
+          {confirmed ? (
             <button
               type="button"
-              className="btn primary"
-              onClick={() => (mine ? startEdit(mine.name) : go("name"))}
+              className="btn primary block"
+              onClick={shareNotice}
             >
-              {mine ? "내 일정 고치기" : "내 일정 표시하기"}
+              확정 내용 공유하기
             </button>
-          </div>
+          ) : (
+            <div className="cta-two">
+              <button type="button" className="btn soft" onClick={shareLink}>
+                초대하기
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                onClick={() => (mine ? startEdit(mine.name) : go("name"))}
+              >
+                {mine ? "내 일정 고치기" : "내 일정 표시하기"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
       {toastNode}
@@ -2130,7 +2223,7 @@ function HalfLegend({ tone }: { tone: "no" | "perfect" }) {
         <i />
       </span>
       {tone === "no"
-        ? "점심과 저녁이 다르면 고리로 보여요. 위쪽이 점심, 아래쪽이 저녁이고 빨간 쪽이 안 되는 시간이에요."
+        ? "점심과 저녁이 다르면 고리로 보여요. 위쪽이 점심, 아래쪽이 저녁이고 초록은 되는 시간, 빨강은 안 되는 시간이에요."
         : "점심과 저녁이 다르면 고리로 보여요. 위쪽이 점심, 아래쪽이 저녁이고 파란 쪽이 모두 되는 시간이에요."}
     </p>
   );

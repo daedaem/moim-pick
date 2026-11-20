@@ -17,6 +17,11 @@ describe("역 추천", () => {
     assert.equal(multi.maxStops, 0);
   });
 
+  it("거리가 비슷하면 사람들이 많이 고른 역을 먼저 추천한다", () => {
+    const top = recommendMeetingPoints([["범계", "강남"], "강남", "선릉"])[0];
+    assert.equal(top.name, "강남");
+  });
+
   it("목록에 없는 역은 무시한다", () => {
     assert.deepEqual(recommendMeetingPoints(["없는역"]), []);
   });

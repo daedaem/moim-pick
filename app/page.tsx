@@ -70,7 +70,12 @@ export default function HomePage() {
   );
   const account = useSyncExternalStore(subscribeNever, readAccountId, () => "");
   const [mine, setMine] = useState<{ id: string; title: string }[]>([]);
-  const recent = useMemo(() => parseRecent(recentRaw), [recentRaw]);
+  const recentAll = useMemo(() => parseRecent(recentRaw), [recentRaw]);
+  // 내가 만든 모임은 아래 '내가 만든 모임'에 나오므로 최근 목록에서는 뺀다
+  const recent = useMemo(
+    () => recentAll.filter((r) => !mine.some((m) => m.id === r.id)),
+    [recentAll, mine],
+  );
   const start = startInput ?? (today ? addDays(today, 1) : "");
   const end = endInput ?? (today ? addDays(today, 28) : "");
 

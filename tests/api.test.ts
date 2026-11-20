@@ -466,6 +466,25 @@ describe("모임장 일정과 확정", () => {
     assert.equal(after[`${day2}:L`], undefined);
   });
 
+  it("이미 지난 날은 고를 수 없고 확정도 안 된다", async () => {
+    const token = await signupAs(signup, "past_host", "지난장", "7878");
+    const { event } = await newEvent(token, "지난 날 시험", {
+      start: daysFromNow(-3),
+      end: daysFromNow(3),
+    });
+    const past = event.dates[0];
+    const blocked = (await call(getEvent, { id: event.id })).body.blocked;
+    assert.equal(blocked[`${past}:L`], "past");
+    assert.equal(blocked[`${event.dates.at(-1)}:L`], undefined);
+    const res = await call(patchEvent, {
+      method: "PATCH",
+      id: event.id,
+      body: { confirmed: { date: past, slot: "L", station: "" } },
+      headers: host(token),
+    });
+    assert.equal(res.status, 409);
+  });
+
   it("응답이 들어오면 화면 번호가 오르고, 지운 모임은 0이 된다", async () => {
     const token = await signupAs(signup, "ver_host", "번호장", "6767");
     const { event } = await newEvent(token, "번호 시험");

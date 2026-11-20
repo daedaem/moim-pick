@@ -42,7 +42,7 @@ export type MoimResponse = {
 };
 
 /** 고를 수 없는 칸의 이유: busy = 모임장 일정, fixed = 모임장의 다른 모임이 그날로 확정됨 */
-export type BlockReason = "busy" | "fixed";
+export type BlockReason = "busy" | "fixed" | "past";
 
 export type EventPayload = {
   event: MoimEvent;

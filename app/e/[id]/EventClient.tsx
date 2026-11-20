@@ -72,6 +72,7 @@ const INPUT_VIEWS: View[] = ["name", "relation", "station", "dates"];
 const BLOCK_TEXT: Record<BlockReason, string> = {
   busy: "모임장 불가",
   fixed: "다른 모임",
+  past: "지난 날",
 };
 
 /** 달력 칸 아래 글씨는 세 글자 안쪽으로 짧게 쓴다 (칸이 좁아서 길면 옆 칸과 붙는다) */
@@ -525,11 +526,17 @@ export default function EventClient() {
           label: "확정된 날",
         });
       } else if (open.length === 0) {
-        const fixed = keys.some((k) => blocked[k.key] === "fixed");
-        const reason = BLOCK_TEXT[fixed ? "fixed" : "busy"];
+        const reason =
+          BLOCK_TEXT[
+            keys.every((k) => blocked[k.key] === "past")
+              ? "past"
+              : keys.some((k) => blocked[k.key] === "fixed")
+                ? "fixed"
+                : "busy"
+          ];
         map.set(date, {
           halves,
-          sub: BLOCK_SHORT,
+          sub: reason === BLOCK_TEXT.past ? "지남" : BLOCK_SHORT,
           label: `${reason}, 고를 수 없음`,
         });
       } else if (total === 0) {
@@ -945,7 +952,7 @@ export default function EventClient() {
       );
     const noCount = openKeys.filter((key) => unavailable.has(key)).length;
     const okCount = openKeys.length - noCount;
-    const hasBlocked = Object.keys(blocked).length > 0;
+    const hasBlocked = Object.values(blocked).some((r) => r !== "past");
 
     const blockedKeys = new Map(
       Object.entries(blocked).map(([key, reason]) => [key, BLOCK_TEXT[reason]]),
@@ -960,11 +967,17 @@ export default function EventClient() {
         blocked[k.key] ? "locked" : unavailable.has(k.key) ? "no" : "ok",
       );
       if (open.length === 0) {
-        const fixed = keys.some((k) => blocked[k.key] === "fixed");
-        const reason = BLOCK_TEXT[fixed ? "fixed" : "busy"];
+        const reason =
+          BLOCK_TEXT[
+            keys.every((k) => blocked[k.key] === "past")
+              ? "past"
+              : keys.some((k) => blocked[k.key] === "fixed")
+                ? "fixed"
+                : "busy"
+          ];
         checkCells.set(date, {
           halves,
-          sub: BLOCK_SHORT,
+          sub: reason === BLOCK_TEXT.past ? "지남" : BLOCK_SHORT,
           label: `${reason}, 고를 수 없음`,
           disabled: true,
         });
@@ -1454,6 +1467,8 @@ export default function EventClient() {
   const newlyBlocked =
     mine && seenBlocked
       ? Object.keys(blocked)
+          // 지난 날은 알릴 필요가 없다
+          .filter((key) => blocked[key] !== "past")
           .filter((key) => !seenBlocked.includes(key))
           .sort()
       : [];
@@ -1711,7 +1726,7 @@ export default function EventClient() {
           {blockedDays > 0 && (
             <span className="legend-item">
               <span className="legend-dot locked" aria-hidden="true" />
-              모임장 일정으로 빠진 날
+              고를 수 없는 날
             </span>
           )}
           {total > 0 && (

@@ -28,6 +28,10 @@ export type MoimResponse = {
   relation: string;
   /** 출발하기 편한 지하철역 이름 (없으면 빈 문자열) */
   station: string;
+  /** 원하는(편한) 장소 최대 3곳. 첫 번째가 station과 같다. 예전 응답에는 없다 */
+  stations?: string[];
+  /** 먹고 싶은 음식 종류 (여러 개, 선택) */
+  foods?: string[];
   /** 안 되는 칸 ("날짜:시간대", 예: "2026-11-23:D") */
   unavailable: string[];
   updatedAt: number;
@@ -64,6 +68,8 @@ export const LIMITS = {
   nameMax: 12,
   rangeDaysMax: 92,
   participantsMax: 60,
+  /** 한 사람이 고를 수 있는 장소 수 */
+  stationsMax: 3,
 } as const;
 
 export const RELATIONS = [

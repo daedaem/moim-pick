@@ -1,3 +1,4 @@
+import { FOODS } from "@/lib/places";
 import {
   canManage,
   cleanLine,
@@ -51,9 +52,23 @@ export async function PUT(request: Request, ctx: Ctx) {
   const relation = cleanLine(body.relation);
   if (!(RELATIONS as readonly string[]).includes(relation))
     return fail("관계를 골라 주세요.");
-  const station = cleanLine(body.station);
-  if (station && !isStation(station))
+  // 장소는 최대 3곳 (예전 화면은 station 하나만 보낸다)
+  const rawStations: unknown[] = Array.isArray(body.stations)
+    ? body.stations
+    : body.station
+      ? [body.station]
+      : [];
+  if (rawStations.length > LIMITS.stationsMax)
+    return fail(`장소는 ${LIMITS.stationsMax}곳까지 고를 수 있어요.`);
+  const stations = [...new Set(rawStations.map((s) => cleanLine(s)))].filter(
+    Boolean,
+  );
+  if (stations.some((s) => !isStation(s)))
     return fail("목록에 있는 역을 골라 주세요.");
+  const station = stations[0] ?? "";
+  const foods = Array.isArray(body.foods)
+    ? FOODS.filter((f) => (body.foods as unknown[]).includes(f))
+    : [];
   if (!Array.isArray(body.unavailable))
     return fail("날짜 정보가 올바르지 않아요.");
 
@@ -113,6 +128,8 @@ export async function PUT(request: Request, ctx: Ctx) {
       name,
       relation,
       station,
+      stations,
+      foods,
       unavailable,
       updatedAt: Date.now(),
       hidden: body.hidden === true,

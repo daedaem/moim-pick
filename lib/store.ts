@@ -18,6 +18,8 @@ export class StoreNotConfiguredError extends Error {
 
 type StoredResponse = {
   relation?: string;
+  stations?: string[];
+  foods?: string[];
   hidden?: boolean;
   station?: string;
   unavailable: string[];
@@ -253,6 +255,12 @@ function redisStore(redis: Redis): Store {
         name,
         relation: typeof value?.relation === "string" ? value.relation : "",
         station: typeof value?.station === "string" ? value.station : "",
+        stations: Array.isArray(value?.stations)
+          ? value.stations.filter((x: unknown) => typeof x === "string")
+          : [],
+        foods: Array.isArray(value?.foods)
+          ? value.foods.filter((x: unknown) => typeof x === "string")
+          : [],
         unavailable: Array.isArray(value?.unavailable) ? value.unavailable : [],
         updatedAt: Number(value?.updatedAt) || 0,
         hidden: value?.hidden === true,
@@ -285,6 +293,8 @@ function redisStore(redis: Redis): Store {
         deviceHash: meta.deviceHash,
         relation: response.relation,
         station: response.station,
+        stations: response.stations ?? [],
+        foods: response.foods ?? [],
         unavailable: response.unavailable,
         updatedAt: response.updatedAt,
         hidden: response.hidden === true,
@@ -455,6 +465,8 @@ function memoryStore(): Store {
         name,
         relation: v.relation ?? "",
         station: v.station ?? "",
+        stations: v.stations ?? [],
+        foods: v.foods ?? [],
         unavailable: v.unavailable,
         updatedAt: v.updatedAt,
         hidden: v.hidden === true,
@@ -481,6 +493,8 @@ function memoryStore(): Store {
         deviceHash: meta.deviceHash,
         relation: response.relation,
         station: response.station,
+        stations: response.stations ?? [],
+        foods: response.foods ?? [],
         unavailable: response.unavailable,
         updatedAt: response.updatedAt,
         hidden: response.hidden === true,

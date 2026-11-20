@@ -343,6 +343,43 @@ describe("응답", () => {
     assert.equal(removeByOther.status, 403);
   });
 
+  it("장소는 최대 3곳, 음식은 정해진 목록에서만 받는다", async () => {
+    const token = await signupAs(signup, "place_host", "장소장", "8989");
+    const { event } = await newEvent(token, "장소 시험");
+    const answer = (body: Record<string, unknown>) =>
+      call(putResponse, {
+        method: "PUT",
+        id: event.id,
+        body: { relation: "친구", unavailable: [], ...body },
+        headers: { "x-device-token": device() },
+      });
+    const ok = await answer({
+      name: "장소많음",
+      stations: ["강남", "사당", "강남"],
+      foods: ["고기", "피자", "카페"],
+    });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(ok.body.response.stations, ["강남", "사당"]); // 겹친 역은 하나로
+    assert.equal(ok.body.response.station, "강남"); // 예전 화면용 첫 번째 역
+    assert.deepEqual(ok.body.response.foods, ["고기", "카페"]); // 목록에 없는 음식은 버린다
+    assert.equal(
+      (
+        await answer({
+          name: "너무많음",
+          stations: ["강남", "사당", "교대", "잠실"],
+        })
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await answer({ name: "없는역", stations: ["없는역"] })).status,
+      400,
+    );
+    // 예전 화면처럼 station 하나만 보내도 된다
+    const legacy = await answer({ name: "예전화면", station: "교대" });
+    assert.deepEqual(legacy.body.response.stations, ["교대"]);
+  });
+
   it("'모임장에게만'으로 한 이름은 다른 참여자에게 가려진다", async () => {
     const token = await signupAs(signup, "mask_host", "가림장", "4545");
     const { event } = await newEvent(token, "가림 시험");

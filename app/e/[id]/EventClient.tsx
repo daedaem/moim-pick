@@ -17,6 +17,8 @@ import Calendar, {
 import DayEditor from "@/app/components/DayEditor";
 import NearbyFood from "@/app/components/NearbyFood";
 import StationPicker from "@/app/components/StationPicker";
+import StationsPicker from "@/app/components/StationsPicker";
+import { FOODS, popularFoods, popularStations, stationsOf } from "@/lib/places";
 import { formatKorean, formatShort } from "@/lib/dates";
 import {
   deviceToken,
@@ -80,6 +82,8 @@ type DraftInput = {
   hidden?: boolean;
   relation: string;
   station: string;
+  stations?: string[];
+  foods?: string[];
   unavailable: string[];
 };
 const draftKey = (eventId: string) => `mp:draft:${eventId}`;
@@ -95,6 +99,12 @@ function readDraft(eventId: string): DraftInput | null {
       hidden: value.hidden === true,
       relation: typeof value.relation === "string" ? value.relation : "",
       station: typeof value.station === "string" ? value.station : "",
+      stations: Array.isArray(value.stations)
+        ? value.stations.filter((x): x is string => typeof x === "string")
+        : undefined,
+      foods: Array.isArray(value.foods)
+        ? value.foods.filter((x): x is string => typeof x === "string")
+        : [],
       unavailable: Array.isArray(value.unavailable)
         ? value.unavailable.filter((k): k is string => typeof k === "string")
         : [],
@@ -148,7 +158,9 @@ export default function EventClient() {
   const [name, setName] = useState("");
   const [relation, setRelation] = useState("");
   const [hidden, setHidden] = useState(false); // 이름을 모임장에게만 공개
-  const [station, setStation] = useState("");
+  const [stations, setStations] = useState<string[]>([]); // 원하는 장소 최대 3곳
+  const station = stations[0] ?? "";
+  const [foods, setFoods] = useState<string[]>([]); // 먹고 싶은 음식 종류
   /** 안 된다고 표시한 칸 ("날짜:시간대") */
   const [unavailable, setUnavailable] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -326,7 +338,8 @@ export default function EventClient() {
         setName(draft.name);
         setRelation(draft.relation);
         setHidden(draft.hidden === true);
-        setStation(draft.station);
+        setStations(draft.stations ?? (draft.station ? [draft.station] : []));
+        setFoods(draft.foods ?? []);
         setUnavailable(new Set(draft.unavailable));
         show(resumed);
         return;
@@ -335,12 +348,14 @@ export default function EventClient() {
       if (mine) {
         setRelation(mine.relation);
         setHidden(mine.hidden === true);
-        setStation(mine.station);
+        setStations(stationsOf(mine));
+        setFoods(mine.foods ?? []);
         setUnavailable(new Set(mine.unavailable));
         settle("result");
       } else {
         // 다른 모임에서 골랐던 출발역은 다시 묻지 않는다
-        setStation(readStation());
+        const remembered = readStation();
+        setStations(remembered ? [remembered] : []);
         // 이미 확정된 모임, 그리고 모임장 본인은 결과부터 보여 준다
         // (모임장에게 "모임장과 어떤 사이인가요?"부터 묻지 않는다)
         settle(event.confirmed || result.payload.canManage ? "result" : "name");
@@ -359,9 +374,11 @@ export default function EventClient() {
       hidden,
       relation,
       station,
+      stations,
+      foods,
       unavailable: [...unavailable],
     });
-  }, [id, view, name, hidden, relation, station, unavailable]);
+  }, [id, view, name, hidden, relation, station, stations, foods, unavailable]);
 
   // 다른 사람이 응답하면 반영되도록, 화면을 보고 있는 동안 주기적으로 확인한다.
   // 서버 부담을 줄이려고 평소에는 "바뀌었는지"만 묻고(번호 비교), 바뀐 경우에만 전체를 다시 불러온다.
@@ -531,7 +548,13 @@ export default function EventClient() {
   const blockedDays = [...cells.values()].filter((c) =>
     c.halves.includes("locked"),
   ).length;
-  const withStation = responses.filter((r) => r.station).length;
+  const withStation = responses.filter((r) => stationsOf(r).length > 0).length;
+  const popular = popularStations(responses).slice(0, 3);
+  const popularFood = popularFoods(responses).slice(0, 3);
+  const topFood = popularFood[0]?.[0] ?? "전체";
+  const foodNote = popularFood.length
+    ? `많이 고른 음식: ${popularFood.map(([f, n]) => `${f} ${n}명`).join(", ")}`
+    : "";
 
   // 결과 화면에서 보고 있는 날짜 (고르지 않았으면 확정일, 없으면 가장 많이 되는 날)
   const bestKey = ranking[0]?.key ?? null;
@@ -548,8 +571,8 @@ export default function EventClient() {
       const key = slotKey(focusDate, slot);
       if (blocked[key]) continue;
       const origins = responses
-        .filter((r) => r.station && !r.unavailable.includes(key))
-        .map((r) => r.station);
+        .filter((r) => stationsOf(r).length > 0 && !r.unavailable.includes(key))
+        .map((r) => stationsOf(r));
       map.set(slot, recommendMeetingPoints(origins));
     }
     return map;
@@ -601,7 +624,8 @@ export default function EventClient() {
     setName(target);
     setRelation(found?.relation ?? "");
     setHidden(found?.hidden === true);
-    setStation(found?.station ?? "");
+    setStations(found ? stationsOf(found) : []);
+    setFoods(found?.foods ?? []);
     setUnavailable(new Set(found?.unavailable ?? []));
     // 관계를 아직 안 적은 예전 응답은 관계부터 묻는다
     go(found && !found.relation ? "relation" : "dates");
@@ -641,7 +665,10 @@ export default function EventClient() {
       // 이미 응답한 이름이면 그 응답을 이어서 고친다
       setRelation(existing.relation || relation);
       setHidden(existing.hidden === true);
-      setStation(existing.station || station);
+      setStations(
+        stationsOf(existing).length ? stationsOf(existing) : stations,
+      );
+      if (existing.foods?.length) setFoods(existing.foods);
       setUnavailable(new Set(existing.unavailable));
     } else if (!relation) {
       setFormError(`${hostLabel}과의 관계를 골라 주세요.`);
@@ -672,6 +699,8 @@ export default function EventClient() {
           hidden,
           relation,
           station,
+          stations,
+          foods,
           // 모임장 일정으로 빠진 칸은 보내지 않는다
           unavailable: openKeys.filter((key) => unavailable.has(key)),
         }),
@@ -1061,10 +1090,41 @@ export default function EventClient() {
             </div>
 
             <p className="field-label step-label">
-              출발역 <span className="optional">선택</span>
+              원하는 장소 <span className="optional">선택, 최대 3곳</span>
             </p>
-            <StationPicker value={station} onChange={setStation} />
-            <p className="hint">적으면 모두 모이기 좋은 역을 추천해 드려요.</p>
+            <StationsPicker values={stations} onChange={setStations} />
+            <p className="hint">
+              집·회사 근처나 가고 싶은 역을 골라 주세요. 모두에게 가까운 역을
+              추천해 드려요.
+            </p>
+
+            <p className="field-label step-label">
+              먹고 싶은 것 <span className="optional">선택, 여러 개</span>
+            </p>
+            <div
+              className="chips step-chips"
+              role="group"
+              aria-label="먹고 싶은 것"
+            >
+              {FOODS.map((item) => {
+                const on = foods.includes(item);
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    className={`chip${on ? " on" : ""}`}
+                    aria-pressed={on}
+                    onClick={() =>
+                      setFoods((prev) =>
+                        on ? prev.filter((f) => f !== item) : [...prev, item],
+                      )
+                    }
+                  >
+                    {item}
+                  </button>
+                );
+              })}
+            </div>
             <p className="privacy-note">
               적은 이름·관계·출발역·안 되는 시간은 이 모임 링크를 가진 사람에게
               보이고, 마지막으로 바뀐 뒤 120일이 지나면 자동으로 지워져요.{" "}
@@ -1112,7 +1172,7 @@ export default function EventClient() {
             <p className="lead">
               그날 오는 사람들 기준으로 모이기 좋은 역을 추천해 드려요.
             </p>
-            <StationPicker value={station} onChange={setStation} />
+            <StationsPicker values={stations} onChange={setStations} />
           </>
         )}
 
@@ -1139,7 +1199,9 @@ export default function EventClient() {
                 className="info-chip"
                 onClick={() => go("station")}
               >
-                {station ? stationLabel(station) : "출발역 없음"}
+                {station
+                  ? `${stationLabel(station)}${stations.length > 1 ? ` 외 ${stations.length - 1}곳` : ""}`
+                  : "장소 없음"}
                 <span className="info-change">
                   {station ? "바꾸기" : "고르기"}
                 </span>
@@ -1266,7 +1328,7 @@ export default function EventClient() {
                 className="btn primary block"
                 onClick={() => goBackTo("dates")}
               >
-                {station ? "확인" : "출발역 없이 하기"}
+                {station ? "확인" : "장소 없이 하기"}
               </button>
             )}
             {view === "dates" && (
@@ -1314,8 +1376,10 @@ export default function EventClient() {
   const topPicks = topRows.slice(0, 3).map((row) => {
     const parsed = parseSlotKey(row.key)!;
     const origins = responses
-      .filter((r) => r.station && !r.unavailable.includes(row.key))
-      .map((r) => r.station);
+      .filter(
+        (r) => stationsOf(r).length > 0 && !r.unavailable.includes(row.key),
+      )
+      .map((r) => stationsOf(r));
     return {
       ...row,
       ...parsed,
@@ -1477,6 +1541,8 @@ export default function EventClient() {
           <NearbyFood
             station={stationLabel(confirmed.station)}
             title="모일 곳 근처 맛집"
+            initialMenu={topFood}
+            menuNote={foodNote}
           />
         </div>
       )}
@@ -1516,6 +1582,38 @@ export default function EventClient() {
               </li>
             ))}
           </ol>
+        </section>
+      )}
+
+      {total > 0 && (popular.length > 0 || popularFood.length > 0) && (
+        <section className="section tight">
+          <h2 className="section-title">모두의 취향</h2>
+          <div className="card taste">
+            {popular.length > 0 && (
+              <div className="taste-row">
+                <span className="taste-label">많이 고른 장소</span>
+                <span className="taste-items">
+                  {popular.map(([st, n]) => (
+                    <span key={st} className="taste-chip">
+                      {stationLabel(st)} <b>{n}</b>
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
+            {popularFood.length > 0 && (
+              <div className="taste-row">
+                <span className="taste-label">먹고 싶은 것</span>
+                <span className="taste-items">
+                  {popularFood.map(([f, n]) => (
+                    <span key={f} className="taste-chip">
+                      {f} <b>{n}</b>
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
@@ -1743,7 +1841,11 @@ export default function EventClient() {
             );
           })}
           {!confirmed && !draft && foodStation && (
-            <NearbyFood station={stationLabel(foodStation)} />
+            <NearbyFood
+              station={stationLabel(foodStation)}
+              initialMenu={topFood}
+              menuNote={foodNote}
+            />
           )}
           {withStation > 0 && (
             <p className="fineprint">
@@ -1780,7 +1882,11 @@ export default function EventClient() {
                       )}
                     </span>
                     <span className="row-sub">
-                      {[r.relation, r.station && stationLabel(r.station)]
+                      {[
+                        r.relation,
+                        stationsOf(r).map(stationLabel).join("·"),
+                        (r.foods ?? []).join("·"),
+                      ]
                         .filter(Boolean)
                         .join(", ") || "관계 미입력"}
                     </span>

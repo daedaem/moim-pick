@@ -87,28 +87,39 @@ export type MeetingPoint = {
 
 /**
  * 여러 사람의 출발역에서 모이기 좋은 역을 고른다.
+ * 한 사람이 역을 여러 개 골랐으면(배열) 그중 가장 가까운 역에서 온다고 본다.
  * 기준: 가장 멀리서 오는 사람의 정거장 수가 가장 적은 역. 1정거장 차이까지는 환승역을 우선하고, 그다음 전체 합이 적은 역.
  * 정거장 수만 세므로 환승 시간·급행은 반영하지 않는다(대략적인 추천).
  */
 export function recommendMeetingPoints(
-  origins: string[],
+  origins: (string | string[])[],
   limit = 3,
 ): MeetingPoint[] {
-  const starts = origins
-    .map((name) => indexByName.get(name))
-    .filter((i): i is number => i !== undefined);
-  if (starts.length === 0) return [];
+  // 사람마다 출발할 수 있는 역 번호 목록
+  const people = origins
+    .map((o) =>
+      (Array.isArray(o) ? o : [o])
+        .map((name) => indexByName.get(name))
+        .filter((i): i is number => i !== undefined),
+    )
+    .filter((list) => list.length > 0);
+  if (people.length === 0) return [];
 
   const distCache = new Map<number, Int16Array>();
-  for (const s of new Set(starts)) distCache.set(s, stopsFrom(s));
+  for (const s of new Set(people.flat())) distCache.set(s, stopsFrom(s));
 
   const scored: { index: number; max: number; sum: number }[] = [];
   for (let i = 0; i < stations.length; i++) {
     let max = 0;
     let sum = 0;
     let reachable = true;
-    for (const s of starts) {
-      const d = distCache.get(s)![i];
+    for (const list of people) {
+      // 이 사람이 고른 역 중 가장 가까운 곳
+      let d = -1;
+      for (const s of list) {
+        const v = distCache.get(s)![i];
+        if (v >= 0 && (d < 0 || v < d)) d = v;
+      }
       if (d < 0) {
         reachable = false;
         break;
@@ -137,6 +148,6 @@ export function recommendMeetingPoints(
   return scored.slice(0, limit).map((row) => ({
     name: stations[row.index][0],
     maxStops: row.max,
-    avgStops: Math.round((row.sum / starts.length) * 10) / 10,
+    avgStops: Math.round((row.sum / people.length) * 10) / 10,
   }));
 }

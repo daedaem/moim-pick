@@ -1,18 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { FOODS } from "@/lib/places";
 
 /** 메뉴 고르기. "전체"는 그냥 맛집으로 찾는다 */
-const MENUS = [
-  "전체",
-  "한식",
-  "고기",
-  "회·일식",
-  "중식",
-  "양식",
-  "술집",
-  "카페",
-];
+const MENUS = ["전체", ...FOODS];
 
 /**
  * 모일 역 근처 맛집을 메뉴별로 지도 앱에서 바로 연다.
@@ -22,13 +14,20 @@ const MENUS = [
 export default function NearbyFood({
   station,
   title = "근처 맛집 찾기",
+  initialMenu = "전체",
+  menuNote = "",
 }: {
   /** 역 이름, 예: "강남역" */
   station: string;
   title?: string;
+  /** 처음 골라 둘 메뉴 (응답자들이 가장 많이 고른 음식) */
+  initialMenu?: string;
+  menuNote?: string;
 }) {
-  const [menu, setMenu] = useState("전체");
-  const query = `${station} ${menu === "전체" ? "맛집" : `${menu} 맛집`}`;
+  const [menu, setMenu] = useState(initialMenu);
+  // 지도 검색이 잘 되는 말로 바꾼다 (예: "회·일식" → "일식")
+  const word = menu === "회·일식" ? "일식" : menu;
+  const query = `${station} ${menu === "전체" ? "맛집" : `${word} 맛집`}`;
   const q = encodeURIComponent(query);
 
   return (
@@ -36,6 +35,7 @@ export default function NearbyFood({
       <p className="food-title">
         {title} <span className="food-station">{station}</span>
       </p>
+      {menuNote && <p className="food-note">{menuNote}</p>}
       <div className="chips food-menus" role="group" aria-label="메뉴">
         {MENUS.map((item) => (
           <button
